@@ -120,6 +120,13 @@
   .fr-x { background:none; border:none; color:#c0392b; font-size:15px; cursor:pointer; }
   .fr-empty { color:#6f7a55; font-size:14px; padding:6px; }
   #friend-msg { min-height:20px; font-size:15px; letter-spacing:1px; margin-top:4px; }
+
+  #pause { position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:13; background:rgba(0,0,0,.72); }
+  #pause .card { background:#12180e; border:2px solid #7dff7d; padding:30px 42px; text-align:center;
+    box-shadow:0 0 32px rgba(80,255,80,.4); display:flex; flex-direction:column; gap:11px; align-items:center; }
+  #pause .classified { margin-bottom:2px; }
+  #pause h2 { color:#e8f0d8; letter-spacing:5px; font-size:36px; margin-bottom:6px; text-shadow:0 0 14px rgba(120,180,60,.5); }
+  #pause .btn { min-width:290px; margin-top:0; }
 </style>
 </head>
 <body>
@@ -179,7 +186,7 @@
     <b>▸ FLY</b> <kbd>W</kbd> fwd <kbd>S</kbd> back <kbd>A</kbd> left <kbd>D</kbd> right &nbsp; <kbd>SPACE</kbd>/<kbd>SHIFT</kbd> up/down<br>
     <b>▸ BOOST</b> hold <kbd>Q</kbd> for a speed burst (up to 200 km/h)!<br>
     <b>▸ CAMERA</b> <kbd>←</kbd><kbd>→</kbd> turn &amp; look &nbsp; <kbd>↑</kbd><kbd>↓</kbd> look up/down<br>
-    <b>▸ COMBAT</b> <kbd>F</kbd> shoot the bad guys! &nbsp; <kbd>V</kbd> camera &nbsp; <kbd>R</kbd> restart
+    <b>▸ COMBAT</b> <kbd>F</kbd> shoot the bad guys! &nbsp; <kbd>V</kbd> camera &nbsp; <kbd>R</kbd> restart &nbsp; <kbd>ESC</kbd> pause
   </div>
   <button class="btn" id="play-btn">▶ DEPLOY</button>
   <button class="btn gold" id="shop-open" style="margin-top:10px;font-size:18px;padding:11px 30px">🛠️ WEAPON SHOP</button>
@@ -198,6 +205,16 @@
     <div id="friend-list"></div>
     <p class="sub" style="font-size:12px;color:#6f7a55;margin-top:10px">Online play together is coming soon! 🚀</p>
     <button class="btn" id="friends-close" style="margin-top:12px">◀ CLOSE</button>
+  </div>
+</div>
+
+<div id="pause">
+  <div class="card">
+    <div class="classified">// MISSION PAUSED //</div>
+    <h2>PAUSED</h2>
+    <button class="btn" id="pause-resume">▶ RESUME</button>
+    <button class="btn" id="pause-restart">↻ RESTART</button>
+    <button class="btn gold" id="pause-menu">◀ EXIT TO MENU</button>
   </div>
 </div>
 
@@ -659,7 +676,7 @@ function fireLightning(){
   }
 }
 function shoot(){
-  if (!state.playing || state.mode!=='combat' || state.dead) return;
+  if (!state.playing || state.paused || state.mode!=='combat' || state.dead) return;
   const rate = FIRE_RATE[state.gun] || 0.22;
   if (state.time - lastShot < rate) return;
   lastShot = state.time;
@@ -854,7 +871,7 @@ const state = {
   mode:'race', map:'flat', kills:0, noBattery:false,
   health:100, dead:false, respawn:0, invuln:0,
   boost:100, boosting:false,
-  coins:0,
+  coins:0, paused:false,
 };
 state.coins = parseInt(localStorage.getItem('skyhawk-coins')||'0', 10);
 function addCoins(n){
@@ -1099,6 +1116,7 @@ function startGame(){
   state.battery=100; state.wind.set(0,0,0); state.windTarget.set(0,0,0);
   state.health=maxHP(); state.dead=false; state.respawn=0; state.invuln=0; updateHPbar();
   state.boost=100; state.boosting=false;
+  state.paused=false; document.getElementById('pause').style.display='none';
   document.getElementById('death').style.display='none';
   setupHUD();
   document.getElementById('start').style.display='none';
@@ -1146,6 +1164,32 @@ document.getElementById('play-btn2').onclick=()=>{ document.getElementById('win'
 document.getElementById('shop-open').onclick=()=>{ document.getElementById('start').style.display='none'; document.getElementById('shop').style.display='flex'; renderShop(); };
 document.getElementById('shop-back').onclick=()=>{ document.getElementById('shop').style.display='none'; document.getElementById('start').style.display='flex'; };
 
+// ---- Pause menu (press ESC while flying) ---------------------------
+function pauseGame(){
+  if (!state.playing || state.paused) return;
+  state.paused=true;
+  if (motorGain) motorGain.gain.value=0;          // hush the motors while paused
+  document.getElementById('pause').style.display='flex';
+}
+function resumeGame(){
+  if (!state.paused) return;
+  state.paused=false;
+  document.getElementById('pause').style.display='none';
+  last=performance.now();                          // don't let time jump ahead
+  if (document.activeElement) document.activeElement.blur();
+}
+function exitToMenu(){
+  state.playing=false; state.paused=false;
+  if (motorGain) motorGain.gain.value=0;
+  document.getElementById('pause').style.display='none';
+  document.getElementById('osd').style.display='none';
+  document.getElementById('death').style.display='none';
+  document.getElementById('start').style.display='flex';
+}
+document.getElementById('pause-resume').onclick=resumeGame;
+document.getElementById('pause-restart').onclick=startGame;
+document.getElementById('pause-menu').onclick=exitToMenu;
+
 // ---- Sign in / account (saves your pilot name on this computer) -----
 const PNAME='skyhawk-name';
 function refreshSignin(){ const n=localStorage.getItem(PNAME); document.getElementById('signin-btn').textContent = n ? ('👤 '+n) : '👤 SIGN IN'; }
@@ -1184,7 +1228,8 @@ document.getElementById('friends-btn').onclick=()=>{ document.getElementById('fr
 document.getElementById('friend-add').onclick=addFriend;
 document.getElementById('friends-close').onclick=()=>{ document.getElementById('friends').style.display='none'; };
 document.getElementById('friend-input').addEventListener('keydown', e=>{ e.stopPropagation(); if (e.code==='Enter') addFriend(); });
-addEventListener('keydown', e=>{ if (e.code==='KeyR' && state.playing) startGame(); if (e.code==='KeyV') viewMode=1-viewMode; });
+addEventListener('keydown', e=>{ if (e.code==='KeyR' && state.playing) startGame(); if (e.code==='KeyV') viewMode=1-viewMode;
+  if (e.code==='Escape' && state.playing){ state.paused ? resumeGame() : pauseGame(); } });
 
 // ======================================================================
 //  GAME LOOP
@@ -1192,7 +1237,7 @@ addEventListener('keydown', e=>{ if (e.code==='KeyR' && state.playing) startGame
 let last = performance.now();
 function loop(now){
   const dt = Math.min((now-last)/1000, 0.033); last = now;
-  if (state.playing){
+  if (state.playing && !state.paused){
     if (state.dead){
       // exploded — count down to respawn, keep the explosion animating
       state.respawn -= dt;
