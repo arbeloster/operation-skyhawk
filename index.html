@@ -935,26 +935,14 @@ function respawnPlayer(){
 }
 
 // ======================================================================
-//  MOTOR + WEAPON SOUND
+//  SOUND — turned off. These are silent no-ops so every call site still works.
 // ======================================================================
-let audio=null, osc1, osc2, motorGain, filter;
-function initAudio(){
-  if (audio) return;
-  audio = new (window.AudioContext||window.webkitAudioContext)();
-  osc1=audio.createOscillator(); osc2=audio.createOscillator();
-  osc1.type='sawtooth'; osc2.type='sawtooth'; osc2.detune.value=14;
-  filter=audio.createBiquadFilter(); filter.type='lowpass'; filter.frequency.value=850;
-  motorGain=audio.createGain(); motorGain.gain.value=0;
-  osc1.connect(filter); osc2.connect(filter); filter.connect(motorGain); motorGain.connect(audio.destination);
-  osc1.start(); osc2.start();
-}
-function motorSound(power, speed){ if (!audio) return; const f=55+power*150+speed*0.4; osc1.frequency.value=f; osc2.frequency.value=f*1.01; motorGain.gain.value=0.02+power*0.05; }
-function blip(freq0, freq1, dur, type, vol){ if (!audio) return; const o=audio.createOscillator(), g=audio.createGain();
-  o.type=type||'square'; o.frequency.setValueAtTime(freq0, audio.currentTime); o.frequency.exponentialRampToValueAtTime(freq1, audio.currentTime+dur);
-  g.gain.setValueAtTime(vol||0.08, audio.currentTime); g.gain.exponentialRampToValueAtTime(0.001, audio.currentTime+dur);
-  o.connect(g); g.connect(audio.destination); o.start(); o.stop(audio.currentTime+dur); }
-function shootSound(){ blip(900, 200, 0.12, 'square', 0.06); }
-function boomSound(){ blip(180, 40, 0.35, 'sawtooth', 0.12); }
+let audio=null, motorGain=null;
+function initAudio(){}
+function motorSound(){}
+function blip(){}
+function shootSound(){}
+function boomSound(){}
 
 // ======================================================================
 //  FLIGHT PHYSICS
@@ -1201,7 +1189,6 @@ function setupHUD(){
     timeLbl.textContent='TIME'; bestRow.style.display='none'; mh.textContent='◈ NO LIMITS — JUST FLY'; }
 }
 function startGame(){
-  initAudio(); if (audio.state==='suspended') audio.resume();
   // build the chosen map + mode
   clearGroup(worldGroup); clearGroup(courseGroup); clearGroup(enemyGroup); clearGroup(fxGroup);
   rings=[]; enemies=[]; bullets=[]; explosions=[]; effects=[]; enemyBullets=[]; lastShot=-100;
