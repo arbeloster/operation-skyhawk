@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>OPERATION SKYHAWK — FPV Sim</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0d08; font-family: "Courier New", monospace; }
-  #game { display: block; }
+  #game { display: block; touch-action: none; }
 
   #vignette { position: fixed; inset: 0; pointer-events: none; z-index: 3;
     box-shadow: inset 0 0 220px 70px rgba(0,0,0,0.55); }
@@ -127,6 +127,36 @@
   #pause .classified { margin-bottom:2px; }
   #pause h2 { color:#e8f0d8; letter-spacing:5px; font-size:36px; margin-bottom:6px; text-shadow:0 0 14px rgba(120,180,60,.5); }
   #pause .btn { min-width:290px; margin-top:0; }
+
+  /* ---- Mobile touch controls (only shown on touch devices while playing) ---- */
+  #touch { position:fixed; inset:0; z-index:8; display:none; pointer-events:none; }
+  body.touch #touch.show { display:block; }
+  .tbtn { position:absolute; pointer-events:auto; touch-action:none;
+    -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent;
+    display:flex; align-items:center; justify-content:center; text-align:center; line-height:1.05;
+    background:rgba(20,30,14,.40); border:2px solid rgba(125,255,125,.72); color:#7dff7d;
+    font-family:"Courier New",monospace; font-weight:bold; text-shadow:0 0 6px #000;
+    box-shadow:0 0 10px rgba(80,255,80,.22); border-radius:14px; }
+  .tbtn.pressed { background:rgba(80,255,80,.38); color:#0a0d08; box-shadow:0 0 16px rgba(80,255,80,.5); }
+  /* left move pad */
+  #dpad { position:absolute; left:20px; bottom:26px; width:184px; height:184px; }
+  #dpad .tbtn { width:58px; height:58px; font-size:26px; border-radius:12px; }
+  #dpad .up   { left:63px; top:0; }
+  #dpad .down { left:63px; bottom:0; }
+  #dpad .left { left:0;    top:63px; }
+  #dpad .right{ right:0;   top:63px; }
+  /* right action buttons */
+  .act { width:78px; height:78px; font-size:14px; letter-spacing:1px; border-radius:50%; }
+  #b-lift  { right:112px; bottom:114px; }
+  #b-boost { right:22px;  bottom:114px; border-color:#35c8ff; color:#35c8ff; box-shadow:0 0 10px rgba(53,200,255,.3); }
+  #b-boost.pressed { background:rgba(53,200,255,.4); color:#04121a; }
+  #b-down  { right:112px; bottom:26px; }
+  #b-fire  { right:22px;  bottom:26px; border-color:#ff6a6a; color:#ff8a8a; box-shadow:0 0 10px rgba(255,90,90,.3); }
+  #b-fire.pressed { background:rgba(255,90,90,.45); color:#1a0505; }
+  /* mini buttons on the clear left edge */
+  .mini { width:52px; height:44px; font-size:20px; border-radius:10px; left:16px; }
+  #b-pause { top:120px; }
+  #b-cam   { top:174px; }
 </style>
 </head>
 <body>
@@ -152,6 +182,22 @@
 <div id="cheer">WAYPOINT CLEARED</div>
 <div id="crash-flash"></div>
 <div id="death">DRONE DESTROYED<br><span style="font-size:24px">RESPAWN IN <span id="respawn-num">3</span>...</span></div>
+
+<!-- On-screen controls for phones & tablets -->
+<div id="touch">
+  <div id="dpad">
+    <button class="tbtn up"    data-key="KeyW" aria-label="forward">▲</button>
+    <button class="tbtn down"  data-key="KeyS" aria-label="back">▼</button>
+    <button class="tbtn left"  data-key="KeyA" aria-label="left">◀</button>
+    <button class="tbtn right" data-key="KeyD" aria-label="right">▶</button>
+  </div>
+  <button class="tbtn act" id="b-lift"  data-key="Space">LIFT</button>
+  <button class="tbtn act" id="b-down"  data-key="ShiftLeft">DOWN</button>
+  <button class="tbtn act" id="b-boost" data-key="KeyQ">BOOST</button>
+  <button class="tbtn act" id="b-fire">FIRE</button>
+  <button class="tbtn mini" id="b-cam">🎥</button>
+  <button class="tbtn mini" id="b-pause">⏸</button>
+</div>
 
 <div id="start" class="screen">
   <div class="stamp">CLASSIFIED</div>
@@ -1128,6 +1174,7 @@ function setupHUD(){
   const objLbl=document.getElementById('obj-lbl'), timeLbl=document.getElementById('time-lbl');
   const bestRow=document.getElementById('best-row');
   document.getElementById('hp').style.display = (state.mode==='combat') ? 'block' : 'none';
+  document.getElementById('b-fire').style.display = (state.mode==='combat') ? 'flex' : 'none';
   if (state.mode==='race'){ objLbl.textContent='WAYPOINT'; document.getElementById('rings').textContent='0/'+rings.length;
     timeLbl.textContent='MISSION TIME'; bestRow.style.display='inline'; mh.textContent=''; }
   else if (state.mode==='combat'){ objLbl.textContent='TARGETS'; document.getElementById('rings').textContent='0/'+enemies.length;
@@ -1157,7 +1204,7 @@ function startGame(){
   document.getElementById('win').style.display='none';
   document.getElementById('osd').style.display='block';
   document.getElementById('coin-n').textContent = state.coins;
-  showBest(); state.playing=true;
+  showBest(); state.playing=true; refreshTouchUI();
   if (document.activeElement) document.activeElement.blur();
 }
 function winGame(){
@@ -1178,6 +1225,7 @@ function winGame(){
   }
   document.getElementById('osd').style.display='none';
   document.getElementById('win').style.display='flex';
+  releaseAllTouch(); refreshTouchUI();
 }
 
 // ---- Start-screen pickers ------------------------------------------
@@ -1203,12 +1251,14 @@ function pauseGame(){
   if (!state.playing || state.paused) return;
   state.paused=true;
   if (motorGain) motorGain.gain.value=0;          // hush the motors while paused
+  releaseAllTouch(); refreshTouchUI();
   document.getElementById('pause').style.display='flex';
 }
 function resumeGame(){
   if (!state.paused) return;
   state.paused=false;
   document.getElementById('pause').style.display='none';
+  refreshTouchUI();
   last=performance.now();                          // don't let time jump ahead
   if (document.activeElement) document.activeElement.blur();
 }
@@ -1219,6 +1269,7 @@ function exitToMenu(){
   document.getElementById('osd').style.display='none';
   document.getElementById('death').style.display='none';
   document.getElementById('start').style.display='flex';
+  releaseAllTouch(); refreshTouchUI();
 }
 document.getElementById('pause-resume').onclick=resumeGame;
 document.getElementById('pause-restart').onclick=startGame;
@@ -1273,6 +1324,75 @@ addEventListener('keydown', e=>{ if (e.code==='KeyR' && state.playing) startGame
   if (e.code==='Escape' && state.playing){ state.paused ? resumeGame() : pauseGame(); } });
 
 // ======================================================================
+//  MOBILE TOUCH CONTROLS
+// ======================================================================
+const IS_TOUCH = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+// Is touch the MAIN way to use this device (a phone/tablet)? A laptop with a touchscreen
+// still has a keyboard+mouse, so we DON'T show buttons there until the player taps the screen.
+const TOUCH_PRIMARY = IS_TOUCH && matchMedia('(pointer: coarse)').matches && matchMedia('(hover: none)').matches;
+let usingTouch = TOUCH_PRIMARY, mobileFire = false;
+if (IS_TOUCH) document.body.classList.add('touch');
+const HINT_KB    = '▲ HOLD <b>[ SPACE ]</b> TO LIFT OFF ▲';
+const HINT_TOUCH = '▲ TAP &amp; HOLD <b>[ LIFT ]</b> TO TAKE OFF ▲';
+function refreshTouchUI(){
+  const t=document.getElementById('touch');
+  if (t) t.classList.toggle('show', IS_TOUCH && usingTouch && state.playing && !state.paused);
+  const h=document.getElementById('hint'); if (h) h.innerHTML = usingTouch ? HINT_TOUCH : HINT_KB;
+}
+function releaseAllTouch(){
+  document.querySelectorAll('#touch .tbtn.pressed').forEach(b=>b.classList.remove('pressed'));
+  ['KeyW','KeyS','KeyA','KeyD','Space','ShiftLeft','KeyQ'].forEach(k=> keys[k]=false);
+  mobileFire=false;
+}
+// Show the buttons the moment the player touches; hide them the moment they use the keyboard.
+function setInputMode(touch){ if (usingTouch===touch) return; usingTouch=touch; if(!touch) releaseAllTouch(); refreshTouchUI(); }
+addEventListener('touchstart', ()=> setInputMode(true),  {passive:true});
+addEventListener('keydown',    ()=> { if (IS_TOUCH) setInputMode(false); });
+// a button you hold down: sets its key while pressed (works for touch AND mouse)
+function holdButton(el, code){
+  const on = e=>{ e.preventDefault(); keys[code]=true;  el.classList.add('pressed'); };
+  const off= e=>{ e.preventDefault(); keys[code]=false; el.classList.remove('pressed'); };
+  el.addEventListener('touchstart', on,  {passive:false});
+  el.addEventListener('touchend',   off, {passive:false});
+  el.addEventListener('touchcancel',off, {passive:false});
+  el.addEventListener('mousedown',  on);
+  el.addEventListener('mouseup',    off);
+  el.addEventListener('mouseleave', off);
+}
+document.querySelectorAll('#touch [data-key]').forEach(el=> holdButton(el, el.dataset.key));
+// FIRE: hold to keep shooting (shoot() has its own fire-rate limit)
+(function(){ const f=document.getElementById('b-fire');
+  const on = e=>{ e.preventDefault(); mobileFire=true;  f.classList.add('pressed'); shoot(); };
+  const off= e=>{ e.preventDefault(); mobileFire=false; f.classList.remove('pressed'); };
+  f.addEventListener('touchstart', on,  {passive:false});
+  f.addEventListener('touchend',   off, {passive:false});
+  f.addEventListener('touchcancel',off, {passive:false});
+  f.addEventListener('mousedown',  on);
+  f.addEventListener('mouseup',    off);
+  f.addEventListener('mouseleave', off);
+})();
+document.getElementById('b-cam').addEventListener('click',   ()=>{ viewMode=1-viewMode; });
+document.getElementById('b-pause').addEventListener('click', ()=>{ if (state.playing && !state.paused) pauseGame(); });
+// Drag one finger anywhere on the view to aim the camera
+let camTouchId=null, lastTX=0, lastTY=0;
+const LOOK_SENS=0.006;
+game.addEventListener('touchstart', e=>{
+  if (!state.playing || state.paused || camTouchId!==null) return;
+  const t=e.changedTouches[0]; camTouchId=t.identifier; lastTX=t.clientX; lastTY=t.clientY;
+}, {passive:true});
+game.addEventListener('touchmove', e=>{
+  if (camTouchId===null) return;
+  for (const t of e.changedTouches){ if (t.identifier===camTouchId){
+    state.yaw     -= (t.clientX-lastTX)*LOOK_SENS;
+    state.camPitch = Math.max(-0.7, Math.min(0.7, state.camPitch - (t.clientY-lastTY)*LOOK_SENS));
+    lastTX=t.clientX; lastTY=t.clientY;
+  }}
+}, {passive:true});
+function endCamTouch(e){ for (const t of e.changedTouches){ if (t.identifier===camTouchId) camTouchId=null; } }
+game.addEventListener('touchend', endCamTouch);
+game.addEventListener('touchcancel', endCamTouch);
+
+// ======================================================================
 //  GAME LOOP
 // ======================================================================
 let last = performance.now();
@@ -1287,6 +1407,7 @@ function loop(now){
       if (state.respawn <= 0) respawnPlayer();
     } else {
       state.time += dt; fly(dt);
+      if (mobileFire) shoot();
       if (state.mode==='race') checkRings();
       if (state.mode==='combat'){ if (state.invuln>0) state.invuln-=dt; updateWorld(dt); }
       if (state.mode!=='freestyle') document.getElementById('time').textContent = state.time.toFixed(1);
