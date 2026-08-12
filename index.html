@@ -201,7 +201,7 @@
     <input id="friend-input" maxlength="16" placeholder="FRIEND'S NAME" autocomplete="off" />
     <button class="btn" id="friend-add" style="margin:12px 0 4px;font-size:16px;padding:9px 20px">➕ ADD FRIEND</button>
     <div id="friend-msg"></div>
-    <p class="sub" style="font-size:11px;color:#6f7a55;margin:2px 0 6px">Pilots you can add: NOVA · BLAZE · ACE · TURBO · GHOST · RAVEN · ZOOM · PIXEL</p>
+    <p class="sub" style="font-size:11px;color:#6f7a55;margin:2px 0 6px">Add any pilot who has created an account in the game! 🌍</p>
     <div id="friend-list"></div>
     <p class="sub" style="font-size:12px;color:#6f7a55;margin-top:10px">Online play together is coming soon! 🚀</p>
     <button class="btn" id="friends-close" style="margin-top:12px">◀ CLOSE</button>
@@ -243,6 +243,40 @@
   <button class="btn gold" id="play-btn2">▶ REDEPLOY</button>
 </div>
 
+<!-- Firebase: the shared online pilot roster ("SkyNet") -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getFirestore, doc, getDoc, setDoc, serverTimestamp }
+    from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  const firebaseConfig = {
+    apiKey: "AIzaSyCSu59ZpAcjpWJO9wJ_DfVzp5Shri3Fbf4",
+    authDomain: "operation-skyhawk-3c02c.firebaseapp.com",
+    projectId: "operation-skyhawk-3c02c",
+    storageBucket: "operation-skyhawk-3c02c.firebasestorage.app",
+    messagingSenderId: "532898684792",
+    appId: "1:532898684792:web:f23fded75c8080502f728d",
+    measurementId: "G-FE5XGT8H27"
+  };
+  const db = getFirestore(initializeApp(firebaseConfig));
+  const clean = s => (s||'').trim().toUpperCase();
+  window.SkyNet = {
+    // put a pilot name on the shared online roster (also updates "last seen")
+    async registerPilot(name){
+      const id = clean(name); if(!id || id.includes('/')) return false;
+      try { await setDoc(doc(db,'pilots',id), { name:id, lastSeen: serverTimestamp() }, { merge:true }); return true; }
+      catch(e){ console.warn('registerPilot failed:', e.message); return false; }
+    },
+    // is there a real pilot account with this name?
+    async pilotExists(name){
+      const id = clean(name); if(!id) return false;
+      const snap = await getDoc(doc(db,'pilots',id)); return snap.exists();
+    }
+  };
+  // if this computer already has a pilot name, make sure it's on the roster
+  const mine = localStorage.getItem('skyhawk-name');
+  if (mine) window.SkyNet.registerPilot(mine);
+  window.dispatchEvent(new Event('skynet-ready'));
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 // ======================================================================
@@ -1193,7 +1227,8 @@ document.getElementById('pause-menu').onclick=exitToMenu;
 // ---- Sign in / account (saves your pilot name on this computer) -----
 const PNAME='skyhawk-name';
 function refreshSignin(){ const n=localStorage.getItem(PNAME); document.getElementById('signin-btn').textContent = n ? ('👤 '+n) : '👤 SIGN IN'; }
-function saveName(){ const v=(document.getElementById('name-input').value.trim()||'PILOT').toUpperCase(); localStorage.setItem(PNAME,v); document.getElementById('account').style.display='none'; refreshSignin(); }
+function saveName(){ const v=(document.getElementById('name-input').value.trim()||'PILOT').toUpperCase(); localStorage.setItem(PNAME,v); document.getElementById('account').style.display='none'; refreshSignin();
+  if (window.SkyNet) window.SkyNet.registerPilot(v); }   // add me to the online roster
 document.getElementById('signin-btn').onclick=()=>{ document.getElementById('name-input').value=localStorage.getItem(PNAME)||''; document.getElementById('account').style.display='flex'; setTimeout(()=>document.getElementById('name-input').focus(),30); };
 document.getElementById('name-save').onclick=saveName;
 document.getElementById('name-input').addEventListener('keydown', e=>{ e.stopPropagation(); if (e.code==='Enter') saveName(); });
@@ -1211,16 +1246,22 @@ function renderFriends(){
     x.onclick=()=>{ const a=getFriends(); a.splice(i,1); localStorage.setItem(FKEY,JSON.stringify(a)); renderFriends(); };
     row.appendChild(x); list.appendChild(row); });
 }
-const KNOWN_PILOTS=['NOVA','BLAZE','ACE','TURBO','GHOST','RAVEN','ZOOM','PIXEL','MAX POWER','SKY KING'];
 function friendMsg(t,c){ const m=document.getElementById('friend-msg'); m.textContent=t; m.style.color=c; }
-function addFriend(){
+async function addFriend(){
   const v=(document.getElementById('friend-input').value.trim()||'').toUpperCase();
   if(!v){ friendMsg('Type a name first.', '#ffd23f'); return; }
   const me=(localStorage.getItem(PNAME)||'').toUpperCase();
   if(v===me){ friendMsg("❌ THAT'S YOU!", '#ff6a6a'); return; }
-  if(!KNOWN_PILOTS.includes(v)){ friendMsg('❌ NAME DOES NOT EXIST', '#ff6a6a'); return; }
   const a=getFriends();
   if(a.includes(v)){ friendMsg('Already your friend!', '#ffd23f'); return; }
+  if(!window.SkyNet){ friendMsg('⏳ Connecting to the pilot network… try again in a sec', '#ffd23f'); return; }
+  const addBtn=document.getElementById('friend-add'); addBtn.disabled=true;
+  friendMsg('🔎 Looking for that pilot…', '#35c8ff');
+  let exists=false;
+  try { exists = await window.SkyNet.pilotExists(v); }
+  catch(e){ friendMsg('❌ Network problem — try again', '#ff6a6a'); addBtn.disabled=false; return; }
+  addBtn.disabled=false;
+  if(!exists){ friendMsg('❌ NO PILOT WITH THAT NAME', '#ff6a6a'); return; }
   a.push(v); localStorage.setItem(FKEY,JSON.stringify(a));
   document.getElementById('friend-input').value=''; friendMsg('✔ FRIEND ADDED!', '#47ff6a'); renderFriends();
 }
