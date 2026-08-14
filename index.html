@@ -510,14 +510,42 @@ function addClouds(n){
     for (let i=0;i<6;i++){ const p=new THREE.Mesh(new THREE.SphereGeometry(rnd(7,13),8,6), cm); p.position.set(rnd(-14,14),rnd(-2,4),rnd(-8,8)); g.add(p); }
     g.scale.setScalar(rnd(0.8,1.6)); g.position.set(rnd(-700,700),rnd(130,230),rnd(-700,700)); worldGroup.add(g); }
 }
-function addMountains(color, snow){
+// Rounder, more natural mountains. Pass options so each map gets its own terrain.
+function addMountains(opt, legacySnow){
+  if (typeof opt === 'number') opt = { color:opt, snow:legacySnow };   // old-style call support
+  opt = opt || {};
+  const color  = opt.color!=null ? opt.color : 0x8a9a7a;
+  const count  = opt.count || 46;
+  const sides  = opt.sides || 10;                 // more sides = rounder silhouette
+  const minR   = opt.minR||900,  maxR   = opt.maxR||1180;
+  const minH   = opt.minH||120,  maxH   = opt.maxH||300;
+  const minRad = opt.minRad||150, maxRad = opt.maxRad||280;
+  const jitter = opt.jitter!=null ? opt.jitter : 0.16;   // wobble the shape so it's not a perfect cone
+  const flatTop= opt.flatTop||0;                  // >0 makes flat-topped mesas/buttes (desert)
+  const snowH  = opt.snowH||210;
   const mm=new THREE.MeshStandardMaterial({color, roughness:1, flatShading:true});
   const sm=new THREE.MeshStandardMaterial({color:0xeef2f5, roughness:1, flatShading:true});
-  for (let i=0;i<44;i++){ const a=i/44*6.283, r=rnd(950,1150), h=rnd(120,300);
-    const m=new THREE.Mesh(new THREE.ConeGeometry(rnd(150,270),h,5), mm);
+  const v=new THREE.Vector3();
+  function wobble(geo, amt){
+    const p=geo.attributes.position;
+    for (let i=0;i<p.count;i++){ v.fromBufferAttribute(p,i);
+      if (v.y < geo.userData.topY-0.01){ v.x+=(Math.random()-0.5)*amt; v.z+=(Math.random()-0.5)*amt; }
+      p.setXYZ(i, v.x, v.y, v.z); }
+    geo.computeVertexNormals();
+  }
+  for (let i=0;i<count;i++){
+    const a=i/count*6.283 + rnd(-0.05,0.05), r=rnd(minR,maxR), h=rnd(minH,maxH), rad=rnd(minRad,maxRad);
+    const geo = flatTop>0 ? new THREE.CylinderGeometry(rad*flatTop, rad, h, sides)
+                          : new THREE.ConeGeometry(rad, h, sides);
+    geo.userData.topY=h/2; wobble(geo, rad*jitter);
+    const m=new THREE.Mesh(geo, mm);
     m.position.set(Math.cos(a)*r, h/2-12, Math.sin(a)*r); m.rotation.y=Math.random()*6.28; worldGroup.add(m);
-    if (snow && h>210){ const cap=new THREE.Mesh(new THREE.ConeGeometry(rnd(55,95),h*0.3,5), sm);
-      cap.position.set(m.position.x, h-h*0.15-12, m.position.z); cap.rotation.y=m.rotation.y; worldGroup.add(cap); } }
+    if (opt.snow && h>snowH){
+      const capH=h*0.34, cg=new THREE.ConeGeometry(rad*0.44, capH, sides); cg.userData.topY=capH/2; wobble(cg, rad*0.05);
+      const cap=new THREE.Mesh(cg, sm);
+      cap.position.set(m.position.x, m.position.y + h/2 - capH*0.42, m.position.z); cap.rotation.y=m.rotation.y; worldGroup.add(cap);
+    }
+  }
 }
 function pineAt(x,z,col){ const g=new THREE.Group();
   const trunk=new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.6,4,6), new THREE.MeshStandardMaterial({color:0x5b4128, roughness:1})); trunk.position.y=2; trunk.castShadow=true; g.add(trunk);
@@ -540,11 +568,13 @@ function bench(x,z,rot){ const g=new THREE.Group(); const wood=new THREE.MeshSta
   g.add(seat,back); g.position.set(x,0,z); g.rotation.y=rot||0; worldGroup.add(g); }
 
 // ---- FLAT WORLD ----
-function buildFlat(){ applyTheme(THEME.day); addGround(0x6fbf4a); addMountains(0x8a9a7a, true); addClouds(12); }
+function buildFlat(){ applyTheme(THEME.day); addGround(0x6fbf4a);
+  addMountains({ color:0x7a9a6c, snow:true, sides:10, minH:130, maxH:300, jitter:0.18 }); addClouds(12); }
 
 // ---- PARK ----
 function buildPark(){
-  applyTheme(THEME.day); addGround(0x62a83f); addMountains(0x7f9a6a, false); addClouds(10);
+  applyTheme(THEME.day); addGround(0x62a83f);
+  addMountains({ color:0x6f9a5a, sides:11, minH:80, maxH:180, jitter:0.16, minRad:170, maxRad:310 }); addClouds(10);
   // pond
   const pond=new THREE.Mesh(new THREE.CircleGeometry(26,36), new THREE.MeshStandardMaterial({color:0x2f7fb5, roughness:0.15, metalness:0.5}));
   pond.rotation.x=-Math.PI/2; pond.position.set(80,0.06,70); worldGroup.add(pond);
@@ -658,7 +688,8 @@ function buildGraveyard(){
 
 // ---- SNOW ----
 function buildSnow(){
-  applyTheme(THEME.snow); addGround(0xeef4f8); addMountains(0xd2dde4, true); addClouds(10);
+  applyTheme(THEME.snow); addGround(0xeef4f8);
+  addMountains({ color:0xc4d2dc, snow:true, sides:9, minH:180, maxH:360, jitter:0.24, snowH:150 }); addClouds(10);
   const snow=new THREE.MeshStandardMaterial({color:0xffffff, roughness:1});
   const green=new THREE.MeshStandardMaterial({color:0x2f6b2f, roughness:1, flatShading:true});
   function tree(x,z){ const g=new THREE.Group();
@@ -682,7 +713,8 @@ function buildSnow(){
 }
 // ---- DESERT ----
 function buildDesert(){
-  applyTheme(THEME.desert); addGround(0xd8c48a); addClouds(4); addMountains(0xc2a15e,false);
+  applyTheme(THEME.desert); addGround(0xd8c48a); addClouds(4);
+  addMountains({ color:0xc2a15e, sides:7, minH:110, maxH:240, jitter:0.12, flatTop:0.5 });   // sandy mesas & buttes
   const sand=new THREE.MeshStandardMaterial({color:0xcbb277, roughness:1, flatShading:true});
   const cactusMat=new THREE.MeshStandardMaterial({color:0x3f8f4a, roughness:1});
   function cactus(x,z){ const g=new THREE.Group();
@@ -704,7 +736,8 @@ function buildDesert(){
 }
 // ---- VILLAGE ----
 function buildVillage(){
-  applyTheme(THEME.day); addGround(0x6fae4a); addClouds(8); addMountains(0x7f9a6a,false);
+  applyTheme(THEME.day); addGround(0x6fae4a); addClouds(8);
+  addMountains({ color:0x6f9a5a, sides:11, minH:80, maxH:180, jitter:0.16, minRad:170, maxRad:310 });   // rolling green hills
   function house(x,z,rot,wall,roofC){ const g=new THREE.Group();
     const w=new THREE.Mesh(new THREE.BoxGeometry(8,5,7), new THREE.MeshStandardMaterial({color:wall,roughness:1})); w.position.y=2.5; w.castShadow=w.receiveShadow=true; g.add(w);
     const roof=new THREE.Mesh(new THREE.ConeGeometry(6.3,4,4), new THREE.MeshStandardMaterial({color:roofC,roughness:1})); roof.position.y=7; roof.rotation.y=Math.PI/4; roof.castShadow=true; g.add(roof);
