@@ -239,6 +239,7 @@
   </div>
   <button class="btn" id="play-btn">▶ DEPLOY</button>
   <button class="btn gold" id="shop-open" style="margin-top:10px;font-size:18px;padding:11px 30px">🛠️ WEAPON SHOP</button>
+  <button class="btn" id="gfx-btn" style="margin-top:10px;font-size:15px;padding:9px 22px;border-color:#35c8ff;color:#35c8ff;text-shadow:0 0 8px #068;background:#0e2230;box-shadow:0 0 14px rgba(53,200,255,.25)">🎨 GRAPHICS: HIGH</button>
   <button id="signin-btn">👤 SIGN IN</button>
   <button id="friends-btn">🧑‍🤝‍🧑 FRIENDS</button>
 </div>
@@ -366,6 +367,15 @@
   window.dispatchEvent(new Event('skynet-ready'));
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- Post-processing add-ons for the "High" graphics glow/bloom -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/GammaCorrectionShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/MaskPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
 <script>
 // ======================================================================
 //  OPERATION SKYHAWK — modes (race/freestyle/combat) + 5 maps
@@ -383,6 +393,38 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputEncoding = THREE.sRGBEncoding;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.98;
+
+// ---- Graphics quality: "low" keeps phones smooth, "high" adds glow + reflections ----
+const _isTouchDev = ('ontouchstart' in window) || navigator.maxTouchPoints>0;
+let GFX = localStorage.getItem('skyhawk-gfx') || (_isTouchDev ? 'low' : 'high');
+let envTex=null, composer=null, bloomPass=null, useBloom=false;
+function buildEnvFromTheme(t){
+  const c=document.createElement('canvas'); c.width=256; c.height=128; const x=c.getContext('2d');
+  const hex=h=>'#'+('000000'+(h>>>0).toString(16)).slice(-6);
+  const g=x.createLinearGradient(0,0,0,128);
+  g.addColorStop(0,hex(t.top)); g.addColorStop(0.46,hex(t.hor)); g.addColorStop(0.54,hex(t.hg)); g.addColorStop(1,hex(t.hg));
+  x.fillStyle=g; x.fillRect(0,0,256,128);
+  if(envTex) envTex.dispose();
+  envTex=new THREE.CanvasTexture(c); envTex.mapping=THREE.EquirectangularReflectionMapping;
+  scene.environment=(GFX==='high')?envTex:null;
+}
+function setupComposer(){
+  try {
+    if(!THREE.EffectComposer||!THREE.UnrealBloomPass) return;
+    composer=new THREE.EffectComposer(renderer);
+    composer.addPass(new THREE.RenderPass(scene,camera));
+    bloomPass=new THREE.UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight), 0.7, 0.35, 0.9);
+    composer.addPass(bloomPass);
+    composer.addPass(new THREE.ShaderPass(THREE.GammaCorrectionShader));   // keep colors correct through the composer
+  } catch(e){ composer=null; }
+}
+function applyGfx(){
+  useBloom=(GFX==='high') && !!composer;
+  scene.environment=(GFX==='high')?envTex:null;
+  renderer.toneMappingExposure=(GFX==='high')?1.05:0.98;
+  const btn=document.getElementById('gfx-btn'); if(btn) btn.textContent='🎨 GRAPHICS: '+GFX.toUpperCase();
+}
+setupComposer(); applyGfx();
 
 function rnd(a,b){ return a + Math.random()*(b-a); }
 const MShim = THREE.MathUtils;
@@ -445,9 +487,21 @@ function applyTheme(t){
   scene.fog.color.setHex(t.fog); scene.fog.near=t.fn; scene.fog.far=t.ff;
   hemi.color.setHex(t.hs); hemi.groundColor.setHex(t.hg); hemi.intensity=t.hi;
   sun.color.setHex(t.sc); sun.intensity=t.si;
+  buildEnvFromTheme(t);                     // sky-coloured reflections for metal & water (High)
+}
+function groundTex(baseHex){
+  const c=document.createElement('canvas'); c.width=c.height=256; const x=c.getContext('2d');
+  const R=baseHex>>16&255, G=baseHex>>8&255, B=baseHex&255;
+  x.fillStyle=`rgb(${R},${G},${B})`; x.fillRect(0,0,256,256);
+  const cl=v=>Math.max(0,Math.min(255,v|0));
+  for(let i=0;i<11000;i++){ const l=(Math.random()-0.5)*46;
+    x.fillStyle=`rgb(${cl(R+l)},${cl(G+l)},${cl(B+l)})`;
+    x.fillRect(Math.random()*256|0, Math.random()*256|0, 2, 2); }
+  const t=new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(60,60); return t;
 }
 function addGround(color){
-  const m=new THREE.Mesh(new THREE.PlaneGeometry(3000,3000), new THREE.MeshStandardMaterial({color, roughness:1}));
+  const m=new THREE.Mesh(new THREE.PlaneGeometry(3000,3000),
+    new THREE.MeshStandardMaterial({color:0xffffff, map:groundTex(color), roughness:0.95}));
   m.rotation.x=-Math.PI/2; m.receiveShadow=true; worldGroup.add(m); return m;
 }
 function addClouds(n){
@@ -1278,6 +1332,8 @@ document.getElementById('play-btn').onclick=startGame;
 document.getElementById('play-btn2').onclick=()=>{ document.getElementById('win').style.display='none'; document.getElementById('start').style.display='flex'; };
 document.getElementById('shop-open').onclick=()=>{ document.getElementById('start').style.display='none'; document.getElementById('shop').style.display='flex'; renderShop(); };
 document.getElementById('shop-back').onclick=()=>{ document.getElementById('shop').style.display='none'; document.getElementById('start').style.display='flex'; };
+document.getElementById('gfx-btn').onclick=()=>{ GFX=(GFX==='high')?'low':'high'; localStorage.setItem('skyhawk-gfx',GFX); applyGfx(); };
+applyGfx();   // set the button label to match the saved setting
 
 // ---- Pause menu (press ESC while flying) ---------------------------
 function pauseGame(){
@@ -1578,12 +1634,13 @@ function loop(now){
     rings[nextRing].userData.ring.scale.set(s,s,s);
   }
   updateRemoteDrones();
-  renderer.render(scene, camera);
+  if (useBloom && composer) composer.render(); else renderer.render(scene, camera);
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 
-addEventListener('resize', ()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+addEventListener('resize', ()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight);
+  if(composer) composer.setSize(innerWidth, innerHeight); if(bloomPass) bloomPass.setSize(innerWidth, innerHeight); });
 </script>
 </body>
 </html>
