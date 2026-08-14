@@ -394,6 +394,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputEncoding = THREE.sRGBEncoding;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.98;
+const MAXANISO = renderer.capabilities.getMaxAnisotropy();   // crisp textures at grazing (flying) angles
 
 // ---- Graphics quality: "low" keeps phones smooth, "high" adds glow + reflections ----
 const _isTouchDev = ('ontouchstart' in window) || navigator.maxTouchPoints>0;
@@ -474,6 +475,13 @@ sun.shadow.mapSize.set(2048,2048);
 Object.assign(sun.shadow.camera, { left:-260, right:260, top:260, bottom:-260, near:1, far:1000 });
 sun.shadow.bias = -0.0004;
 scene.add(sun);
+// bright sun flare that blooms on High (shown on day-ish themes; follows the camera to stay in the sky)
+const flareTex = (()=>{ const c=document.createElement('canvas'); c.width=c.height=128; const x=c.getContext('2d');
+  const g=x.createRadialGradient(64,64,0,64,64,64);
+  g.addColorStop(0,'rgba(255,251,238,1)'); g.addColorStop(0.22,'rgba(255,242,205,0.85)'); g.addColorStop(0.55,'rgba(255,225,160,0.22)'); g.addColorStop(1,'rgba(255,225,160,0)');
+  x.fillStyle=g; x.fillRect(0,0,128,128); return new THREE.CanvasTexture(c); })();
+const sunFlare = new THREE.Sprite(new THREE.SpriteMaterial({map:flareTex, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, depthTest:false}));
+sunFlare.scale.set(280,280,1); scene.add(sunFlare);
 
 // ---- Shared materials ----------------------------------------------
 const metal = new THREE.MeshStandardMaterial({color:0x3a3a38, roughness:.6, metalness:.5});
@@ -505,6 +513,8 @@ function applyTheme(t){
   scene.fog.color.setHex(t.fog); scene.fog.near=t.fn; scene.fog.far=t.ff;
   hemi.color.setHex(t.hs); hemi.groundColor.setHex(t.hg); hemi.intensity=t.hi;
   sun.color.setHex(t.sc); sun.intensity=t.si;
+  sunFlare.visible = (t.si>=1.0 && t.top!==0x03040c);   // day-ish themes only (not night/space)
+  sunFlare.material.color.setHex(t.sc);
   buildEnvFromTheme(t);                     // sky-coloured reflections for metal & water (High)
 }
 function groundTex(baseHex){
@@ -515,11 +525,18 @@ function groundTex(baseHex){
   for(let i=0;i<11000;i++){ const l=(Math.random()-0.5)*46;
     x.fillStyle=`rgb(${cl(R+l)},${cl(G+l)},${cl(B+l)})`;
     x.fillRect(Math.random()*256|0, Math.random()*256|0, 2, 2); }
-  const t=new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(60,60); return t;
+  const t=new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(60,60); t.anisotropy=MAXANISO; return t;
 }
+// shared grayscale relief so light plays across the ground surface (bump)
+const GROUND_BUMP = (()=>{
+  const c=document.createElement('canvas'); c.width=c.height=256; const x=c.getContext('2d');
+  x.fillStyle='#808080'; x.fillRect(0,0,256,256);
+  for(let i=0;i<15000;i++){ const v=128+(Math.random()-0.5)*170|0; x.fillStyle=`rgb(${v},${v},${v})`; x.fillRect(Math.random()*256|0,Math.random()*256|0,2,2); }
+  const t=new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(120,120); t.anisotropy=MAXANISO; return t;
+})();
 function addGround(color){
   const m=new THREE.Mesh(new THREE.PlaneGeometry(3000,3000),
-    new THREE.MeshStandardMaterial({color:0xffffff, map:groundTex(color), roughness:0.95}));
+    new THREE.MeshStandardMaterial({color:0xffffff, map:groundTex(color), bumpMap:GROUND_BUMP, bumpScale:0.5, roughness:0.95}));
   m.rotation.x=-Math.PI/2; m.receiveShadow=true; worldGroup.add(m); return m;
 }
 // Water: real mirror reflections on High, a shiny water material on Low (phone-friendly)
@@ -537,8 +554,10 @@ function addWater(x,y,z,radius,tint){
 function addClouds(n){
   const cm=new THREE.MeshStandardMaterial({color:0xffffff, roughness:1});
   for (let k=0;k<n;k++){ const g=new THREE.Group();
-    for (let i=0;i<6;i++){ const p=new THREE.Mesh(new THREE.SphereGeometry(rnd(7,13),8,6), cm); p.position.set(rnd(-14,14),rnd(-2,4),rnd(-8,8)); g.add(p); }
-    g.scale.setScalar(rnd(0.8,1.6)); g.position.set(rnd(-700,700),rnd(130,230),rnd(-700,700)); worldGroup.add(g); }
+    const puffs=9+Math.floor(rnd(0,6));
+    for (let i=0;i<puffs;i++){ const p=new THREE.Mesh(new THREE.SphereGeometry(rnd(6,15),10,8), cm);
+      p.position.set(rnd(-22,22), Math.abs(rnd(-1,5))*0.7, rnd(-11,11)); p.scale.y=rnd(0.5,0.75); g.add(p); }   // flat-bottomed cumulus
+    g.scale.setScalar(rnd(1.0,2.2)); g.position.set(rnd(-820,820), rnd(150,270), rnd(-820,820)); worldGroup.add(g); }
 }
 // Rounder, more natural mountains. Pass options so each map gets its own terrain.
 function addMountains(opt, legacySnow){
@@ -1731,6 +1750,7 @@ function loop(now){
   }
   updateRemoteDrones();
   sky.material.uniforms.time.value = now*0.001;   // drift the clouds
+  if (sunFlare.visible) sunFlare.position.copy(camera.position).addScaledVector(SUN_DIR,1600);   // keep sun fixed in the sky
   if (useBloom && composer) composer.render(); else renderer.render(scene, camera);
   requestAnimationFrame(loop);
 }
