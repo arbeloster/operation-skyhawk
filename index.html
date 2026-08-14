@@ -300,20 +300,25 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp }
     from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { getDatabase, ref as dbRef, set as dbSet, update as dbUpdate, onValue, onDisconnect, remove as dbRemove }
+    from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
   const firebaseConfig = {
     apiKey: "AIzaSyCSu59ZpAcjpWJO9wJ_DfVzp5Shri3Fbf4",
     authDomain: "operation-skyhawk-3c02c.firebaseapp.com",
+    databaseURL: "https://operation-skyhawk-3c02c-default-rtdb.firebaseio.com",
     projectId: "operation-skyhawk-3c02c",
     storageBucket: "operation-skyhawk-3c02c.firebasestorage.app",
     messagingSenderId: "532898684792",
     appId: "1:532898684792:web:f23fded75c8080502f728d",
     measurementId: "G-FE5XGT8H27"
   };
-  const db = getFirestore(initializeApp(firebaseConfig));
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const rtdb = getDatabase(app);
   const P = c => doc(db,'pilots',c);
   // IDs are short, safe for a doc id, and UPPERCASE so they're easy to share
   const cleanId = s => (s||'').trim().toUpperCase().replace(/[^A-Z0-9_-]/g,'').slice(0,12);
-  const S = { myId:null, status:'menu', mode:null, map:null };
+  const S = { myId:null, name:'', status:'menu', mode:null, map:null };
   window.SkyNet = {
     cleanId,
     get myId(){ return S.myId; },
@@ -322,7 +327,7 @@
       try { return (await getDoc(P(id))).exists(); } catch(e){ return false; } },
     // claim/refresh an account with a unique ID + display name
     async createAccount(id, name){ id=cleanId(id); if(!id) return false;
-      S.myId=id; S.status='menu'; S.mode=null; S.map=null;
+      S.myId=id; S.name=name||'PILOT'; S.status='menu'; S.mode=null; S.map=null;
       try { await setDoc(P(id), { id, name:(name||'PILOT'), status:'menu', mode:null, map:null, lastSeen: serverTimestamp() }, {merge:true}); } catch(e){}
       return true; },
     // update my live status: 'menu' (in a menu) or 'playing' (deployed)
@@ -335,8 +340,27 @@
     // live-watch a pilot; cb(data|null) fires on every change. returns an unsubscribe fn
     watch(id, cb){ id=cleanId(id); return onSnapshot(P(id), s=> cb(s.exists()? s.data():null), ()=>cb(null)); }
   };
+
+  // ---- Realtime multiplayer: shared "rooms" where drones fly together ----
+  let meRef=null, playersUnsub=null;
+  window.SkyNet.joinRoom = async function(roomId, onPlayers){
+    this.leaveRoom();
+    if(!S.myId || !roomId) return;
+    meRef = dbRef(rtdb, `rooms/${roomId}/players/${S.myId}`);
+    try { onDisconnect(meRef).remove(); } catch(e){}          // auto-remove my drone if I disconnect
+    try { await dbSet(meRef, { id:S.myId, name:S.name||S.myId, x:0, y:1.2, z:0, ry:0, t:Date.now() }); } catch(e){}
+    const pRef = dbRef(rtdb, `rooms/${roomId}/players`);
+    playersUnsub = onValue(pRef, snap=> onPlayers(snap.val()||{}), ()=>onPlayers({}));
+  };
+  window.SkyNet.updateMe = function(p){ if(!meRef) return; try { dbUpdate(meRef, p); } catch(e){} };
+  window.SkyNet.leaveRoom = function(){
+    if(meRef){ try { onDisconnect(meRef).cancel(); } catch(e){} try { dbRemove(meRef); } catch(e){} meRef=null; }
+    if(playersUnsub){ try { playersUnsub(); } catch(e){} playersUnsub=null; }
+  };
+
   // remember who we are across visits, and keep a heartbeat so friends see us online
   S.myId = cleanId(localStorage.getItem('skyhawk-id')||'') || null;
+  S.name = (localStorage.getItem('skyhawk-name')||'') || S.myId || 'PILOT';
   if (S.myId) window.SkyNet.setStatus('menu');
   setInterval(()=>{ if (S.myId) window.SkyNet.setStatus(S.status, S.mode, S.map); }, 20000);
   window.dispatchEvent(new Event('skynet-ready'));
@@ -1211,6 +1235,7 @@ function startGame(){
   document.getElementById('coin-n').textContent = state.coins;
   showBest(); state.playing=true; refreshTouchUI();
   if (window.SkyNet) window.SkyNet.setStatus('playing', state.mode, state.map);
+  joinRoomForGame();
   if (document.activeElement) document.activeElement.blur();
 }
 function winGame(){
@@ -1232,6 +1257,7 @@ function winGame(){
   document.getElementById('osd').style.display='none';
   document.getElementById('win').style.display='flex';
   releaseAllTouch(); refreshTouchUI();
+  leaveRoomAndClear();
   if (window.SkyNet) window.SkyNet.setStatus('menu');
 }
 
@@ -1277,6 +1303,7 @@ function exitToMenu(){
   document.getElementById('death').style.display='none';
   document.getElementById('start').style.display='flex';
   releaseAllTouch(); refreshTouchUI();
+  leaveRoomAndClear();
   if (window.SkyNet) window.SkyNet.setStatus('menu');
 }
 document.getElementById('pause-resume').onclick=resumeGame;
@@ -1388,6 +1415,7 @@ function joinFriend(id){
   document.querySelectorAll('#map-pick .mapbtn').forEach(x=>x.classList.toggle('on', x.dataset.map===state.map));
   document.getElementById('mode-desc').textContent = MODE_DESC[state.mode]||'';
   document.getElementById('friends').style.display='none'; stopFriendWatchers();
+  pendingRoom = id;                              // land in my friend's room so we fly together
   startGame();
 }
 document.getElementById('friends-btn').onclick=()=>{ document.getElementById('friends').style.display='flex'; friendMsg('',''); renderFriends(); setTimeout(()=>document.getElementById('friend-input').focus(),30); };
@@ -1467,6 +1495,56 @@ game.addEventListener('touchend', endCamTouch);
 game.addEventListener('touchcancel', endCamTouch);
 
 // ======================================================================
+//  MULTIPLAYER — see your friends' drones fly with you (Half 2)
+// ======================================================================
+const remoteGroup = new THREE.Group(); scene.add(remoteGroup);
+let remotePlayers={}, netRoom=null, pendingRoom=null, lastNet=0;
+function nameSprite(text){
+  const c=document.createElement('canvas'); c.width=256; c.height=64; const x=c.getContext('2d');
+  x.font='bold 34px "Courier New", monospace'; x.textAlign='center'; x.textBaseline='middle';
+  x.lineWidth=7; x.strokeStyle='rgba(0,0,0,0.85)'; x.strokeText(text,128,34);
+  x.fillStyle='#7dff7d'; x.fillText(text,128,34);
+  const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c), transparent:true, depthWrite:false}));
+  s.scale.set(6,1.5,1); s.position.y=2.4; return s;
+}
+function makeRemoteDrone(name){
+  const g=new THREE.Group();
+  const body=new THREE.Mesh(new THREE.BoxGeometry(1.3,0.3,1.9), new THREE.MeshStandardMaterial({color:0xff8a3a, metalness:.3, roughness:.5})); body.castShadow=true; g.add(body);
+  [[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([sx,sz])=>{
+    const motor=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.16,0.22,8), metal); motor.position.set(sx*0.9,0.12,sz*0.9); g.add(motor);
+    const prop=new THREE.Mesh(new THREE.CylinderGeometry(1.0,1.0,0.03,12), new THREE.MeshStandardMaterial({color:0x0a0a0a, transparent:true, opacity:.35})); prop.position.set(sx*0.9,0.26,sz*0.9); g.add(prop);
+  });
+  const led=new THREE.Mesh(new THREE.SphereGeometry(0.12,8,6), new THREE.MeshStandardMaterial({color:0xffd23f, emissive:0xffa000, emissiveIntensity:1.6})); led.position.set(0,0.2,-0.95); g.add(led);
+  g.add(nameSprite(name));
+  return { group:g, target:null };
+}
+function clearRemotePlayers(){ for(const id in remotePlayers) remoteGroup.remove(remotePlayers[id].group); remotePlayers={}; }
+function leaveRoomAndClear(){ if(window.SkyNet && window.SkyNet.leaveRoom) window.SkyNet.leaveRoom(); netRoom=null; clearRemotePlayers(); }
+function onRoomPlayers(players){
+  const mine=myId(), seen={};
+  for(const id in players){ if(id===mine) continue; const p=players[id]; if(!p) continue; seen[id]=1;
+    let rp=remotePlayers[id];
+    if(!rp){ rp=makeRemoteDrone(p.name||id); remotePlayers[id]=rp; remoteGroup.add(rp.group); rp.group.position.set(+p.x||0,+p.y||1.2,+p.z||0); }
+    rp.target={ x:+p.x||0, y:+p.y||1.2, z:+p.z||0, ry:+p.ry||0 };
+  }
+  for(const id in remotePlayers){ if(!seen[id]){ remoteGroup.remove(remotePlayers[id].group); delete remotePlayers[id]; } }
+}
+function updateRemoteDrones(){
+  for(const id in remotePlayers){ const rp=remotePlayers[id]; if(!rp.target) continue; const g=rp.group;
+    g.position.x+=(rp.target.x-g.position.x)*0.2;
+    g.position.y+=(rp.target.y-g.position.y)*0.2;
+    g.position.z+=(rp.target.z-g.position.z)*0.2;
+    let dy=rp.target.ry-g.rotation.y; while(dy>Math.PI)dy-=6.283; while(dy<-Math.PI)dy+=6.283; g.rotation.y+=dy*0.2;
+  }
+}
+function joinRoomForGame(){
+  clearRemotePlayers();
+  const room = pendingRoom || myId(); pendingRoom=null;
+  netRoom = (window.SkyNet && window.SkyNet.joinRoom && myId()) ? room : null;
+  if(netRoom) window.SkyNet.joinRoom(netRoom, onRoomPlayers);
+}
+
+// ======================================================================
 //  GAME LOOP
 // ======================================================================
 let last = performance.now();
@@ -1482,6 +1560,8 @@ function loop(now){
     } else {
       state.time += dt; fly(dt);
       if (mobileFire) shoot();
+      if (netRoom && window.SkyNet && now-lastNet>90){ lastNet=now;
+        window.SkyNet.updateMe({ x:state.pos.x, y:state.pos.y, z:state.pos.z, ry:state.yaw, t:now }); }
       if (state.mode==='race') checkRings();
       if (state.mode==='combat'){ if (state.invuln>0) state.invuln-=dt; updateWorld(dt); }
       if (state.mode!=='freestyle') document.getElementById('time').textContent = state.time.toFixed(1);
@@ -1497,6 +1577,7 @@ function loop(now){
     const s = 1 + Math.sin(now*0.005)*0.06;
     rings[nextRing].userData.ring.scale.set(s,s,s);
   }
+  updateRemoteDrones();
   renderer.render(scene, camera);
   requestAnimationFrame(loop);
 }
