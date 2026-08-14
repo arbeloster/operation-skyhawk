@@ -1220,19 +1220,53 @@ function fly(dt){
   updateCamera();
 }
 
-// ---- The drone ------------------------------------------------------
-const drone = new THREE.Group();
-const carbon = new THREE.MeshStandardMaterial({color:0x23261c, metalness:.4, roughness:.5});
-const dbody = new THREE.Mesh(new THREE.BoxGeometry(1.3,0.3,1.9), carbon); dbody.castShadow=true; drone.add(dbody);
-const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.5,10,8,0,6.28,0,1.2), new THREE.MeshStandardMaterial({color:0x0e1016, metalness:.3, roughness:.25})); canopy.position.set(0,0.2,0.1); drone.add(canopy);
-const cam3d = new THREE.Mesh(new THREE.SphereGeometry(0.28,12,10), new THREE.MeshStandardMaterial({color:0x0a0a0a, roughness:.3})); cam3d.position.set(0,-0.02,-0.9); drone.add(cam3d);
-const props = [];
-[[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([sx,sz])=>{
-  const arm=new THREE.Mesh(new THREE.BoxGeometry(0.16,0.1,0.16), carbon); arm.position.set(sx*0.9,0,sz*0.9); drone.add(arm);
-  const motor=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.16,0.22,10), metal); motor.position.set(sx*0.95,0.12,sz*0.95); drone.add(motor);
-  const prop=new THREE.Mesh(new THREE.CylinderGeometry(1.0,1.0,0.03,18), new THREE.MeshStandardMaterial({color:0x0a0a0a, transparent:true, opacity:.35})); prop.position.set(sx*0.95,0.26,sz*0.95); drone.add(prop); props.push(prop);
-  const led=new THREE.Mesh(new THREE.SphereGeometry(0.09,8,6), new THREE.MeshStandardMaterial({color: sz<0?0xff3030:0x40ff40, emissive: sz<0?0xff0000:0x00ff00, emissiveIntensity:1.4})); led.position.set(sx*0.95,-0.13,sz*0.95); drone.add(led);
-});
+// ---- The drone: a detailed FPV racing quad (reused for you + friends' drones) ----
+const carbon = new THREE.MeshStandardMaterial({color:0x1a1c18, metalness:.55, roughness:.4});
+function buildDrone(opt){
+  opt = opt || {};
+  const accent = opt.accent!=null ? opt.accent : 0x35c8ff;
+  const battCol = opt.batt!=null ? opt.batt : 0x243a5a;
+  const frameMat = opt.frame!=null ? new THREE.MeshStandardMaterial({color:opt.frame, metalness:.5, roughness:.45}) : carbon;
+  const darkMetal = new THREE.MeshStandardMaterial({color:0x0c0d0b, metalness:.75, roughness:.35});
+  const plastic   = new THREE.MeshStandardMaterial({color:0x141414, metalness:.2,  roughness:.6});
+  const ledMat    = new THREE.MeshStandardMaterial({color:accent, emissive:accent, emissiveIntensity:2.2});
+  const bladeMat  = new THREE.MeshStandardMaterial({color:0x0b0b0b, metalness:.2, roughness:.6, transparent:true, opacity:.5, side:THREE.DoubleSide});
+  const g = new THREE.Group(); const props = [];
+  // stacked carbon frame plates + standoffs
+  const bottom=new THREE.Mesh(new THREE.BoxGeometry(1.0,0.06,1.35), frameMat); bottom.castShadow=true; g.add(bottom);
+  const topPlate=new THREE.Mesh(new THREE.BoxGeometry(0.8,0.05,1.0), frameMat); topPlate.position.y=0.34; g.add(topPlate);
+  [[0.34,0.45],[0.34,-0.45],[-0.34,0.45],[-0.34,-0.45]].forEach(([sx,sz])=>{
+    const post=new THREE.Mesh(new THREE.CylinderGeometry(0.035,0.035,0.34,6), darkMetal); post.position.set(sx,0.17,sz); g.add(post); });
+  // battery + strap on top
+  const batt=new THREE.Mesh(new THREE.BoxGeometry(0.6,0.26,0.92), new THREE.MeshStandardMaterial({color:battCol, metalness:.35, roughness:.5})); batt.position.y=0.5; batt.castShadow=true; g.add(batt);
+  const strap=new THREE.Mesh(new THREE.BoxGeometry(0.64,0.04,0.22), plastic); strap.position.y=0.5; g.add(strap);
+  // 4 arms + motors + spinning 3-blade props + nav LEDs (green front, red back)
+  [[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([sx,sz])=>{
+    const mx=sx*0.82, mz=sz*0.82;
+    const arm=new THREE.Mesh(new THREE.BoxGeometry(0.14,0.06,1.12), frameMat);
+    arm.position.set(sx*0.42,0.02,sz*0.42); arm.rotation.y=Math.atan2(sx,sz); arm.castShadow=true; g.add(arm);
+    const motor=new THREE.Mesh(new THREE.CylinderGeometry(0.17,0.2,0.18,14), darkMetal); motor.position.set(mx,0.12,mz); motor.castShadow=true; g.add(motor);
+    const bell=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.16,0.05,14), ledMat); bell.position.set(mx,0.22,mz); g.add(bell);
+    const prop=new THREE.Group(); prop.position.set(mx,0.27,mz);
+    for(let b=0;b<3;b++){ const holder=new THREE.Group(); holder.rotation.y=b*2.094;
+      const blade=new THREE.Mesh(new THREE.BoxGeometry(0.44,0.015,0.13), bladeMat); blade.position.x=0.22; holder.add(blade); prop.add(holder); }
+    g.add(prop); props.push(prop);
+    const led=new THREE.Mesh(new THREE.SphereGeometry(0.06,8,6), new THREE.MeshStandardMaterial({color: sz<0?0xff3030:0x40ff40, emissive: sz<0?0xff0000:0x00ff00, emissiveIntensity:2.2})); led.position.set(mx,0.0,mz); g.add(led);
+  });
+  // tilted FPV camera at the front
+  const camMount=new THREE.Mesh(new THREE.BoxGeometry(0.32,0.32,0.2), plastic); camMount.position.set(0,0.4,-0.5); camMount.rotation.x=-0.5; g.add(camMount);
+  const lens=new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.1,0.12,12), darkMetal); lens.rotation.x=1.1; lens.position.set(0,0.47,-0.62); g.add(lens);
+  const glass=new THREE.Mesh(new THREE.CircleGeometry(0.08,12), new THREE.MeshStandardMaterial({color:0x0a2a44, emissive:accent, emissiveIntensity:0.7, metalness:.9, roughness:.1})); glass.position.set(0,0.5,-0.68); glass.rotation.x=1.1; g.add(glass);
+  // rear LED bar + two antennas
+  const bar=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.04,0.05), ledMat); bar.position.set(0,0.08,0.66); g.add(bar);
+  [[0.26,0.6],[-0.26,0.6]].forEach(([ax,az])=>{
+    const ant=new THREE.Mesh(new THREE.CylinderGeometry(0.014,0.014,0.5,5), plastic); ant.position.set(ax,0.3,az); ant.rotation.x=0.45; g.add(ant);
+    const tip=new THREE.Mesh(new THREE.SphereGeometry(0.04,8,6), ledMat); tip.position.set(ax,0.52,az+0.1); g.add(tip);
+  });
+  return { group:g, props };
+}
+const _player = buildDrone({ accent:0x35c8ff, batt:0x243a5a });
+const drone = _player.group; const props = _player.props;
 scene.add(drone); drone.visible=false;
 
 // ---- Camera ---------------------------------------------------------
@@ -1601,15 +1635,9 @@ function nameSprite(text){
   s.scale.set(6,1.5,1); s.position.y=2.4; return s;
 }
 function makeRemoteDrone(name){
-  const g=new THREE.Group();
-  const body=new THREE.Mesh(new THREE.BoxGeometry(1.3,0.3,1.9), new THREE.MeshStandardMaterial({color:0xff8a3a, metalness:.3, roughness:.5})); body.castShadow=true; g.add(body);
-  [[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([sx,sz])=>{
-    const motor=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.16,0.22,8), metal); motor.position.set(sx*0.9,0.12,sz*0.9); g.add(motor);
-    const prop=new THREE.Mesh(new THREE.CylinderGeometry(1.0,1.0,0.03,12), new THREE.MeshStandardMaterial({color:0x0a0a0a, transparent:true, opacity:.35})); prop.position.set(sx*0.9,0.26,sz*0.9); g.add(prop);
-  });
-  const led=new THREE.Mesh(new THREE.SphereGeometry(0.12,8,6), new THREE.MeshStandardMaterial({color:0xffd23f, emissive:0xffa000, emissiveIntensity:1.6})); led.position.set(0,0.2,-0.95); g.add(led);
-  g.add(nameSprite(name));
-  return { group:g, target:null };
+  const built = buildDrone({ accent:0xffb020, frame:0x2a1c12, batt:0x3a2a10 });   // warm/orange so friends stand out
+  built.group.add(nameSprite(name));
+  return { group:built.group, props:built.props, target:null };
 }
 function clearRemotePlayers(){ for(const id in remotePlayers) remoteGroup.remove(remotePlayers[id].group); remotePlayers={}; }
 function leaveRoomAndClear(){ if(window.SkyNet && window.SkyNet.leaveRoom) window.SkyNet.leaveRoom(); netRoom=null; clearRemotePlayers(); }
@@ -1623,7 +1651,9 @@ function onRoomPlayers(players){
   for(const id in remotePlayers){ if(!seen[id]){ remoteGroup.remove(remotePlayers[id].group); delete remotePlayers[id]; } }
 }
 function updateRemoteDrones(){
-  for(const id in remotePlayers){ const rp=remotePlayers[id]; if(!rp.target) continue; const g=rp.group;
+  for(const id in remotePlayers){ const rp=remotePlayers[id];
+    if(rp.props) rp.props.forEach(p=>p.rotation.y+=0.6);   // keep their props spinning
+    if(!rp.target){ continue; } const g=rp.group;
     g.position.x+=(rp.target.x-g.position.x)*0.2;
     g.position.y+=(rp.target.y-g.position.y)*0.2;
     g.position.z+=(rp.target.z-g.position.z)*0.2;
