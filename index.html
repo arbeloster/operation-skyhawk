@@ -603,6 +603,7 @@ function cityWinTex(){
 }
 function buildCity(){
   applyTheme(THEME.hazy); addGround(0x3f4348); addClouds(8);
+  addMountains({ color:0x97a3b0, sides:10, minH:70, maxH:170, jitter:0.14, count:40 });   // hazy distant outskirt hills
   // road grid
   const road=new THREE.MeshStandardMaterial({color:0x2b2e31, roughness:1});
   for (let i=-4;i<=4;i++){ const a=new THREE.Mesh(new THREE.PlaneGeometry(12,800), road); a.rotation.x=-Math.PI/2; a.position.set(i*70,0.03,0); worldGroup.add(a);
@@ -621,6 +622,7 @@ function buildCity(){
 // ---- STADIUM ----
 function buildStadium(){
   applyTheme(THEME.dusk); addGround(0x2f8a34); addClouds(6);
+  addMountains({ color:0x8a7c94, sides:10, minH:100, maxH:230, jitter:0.16 });   // dusk hills on the horizon
   // field markings
   const white=new THREE.MeshStandardMaterial({color:0xffffff, roughness:1});
   const circle=new THREE.Mesh(new THREE.RingGeometry(9,10,40), white); circle.rotation.x=-Math.PI/2; circle.position.y=0.05; worldGroup.add(circle);
@@ -652,6 +654,8 @@ function buildStadium(){
 // ---- GRAVEYARD ----
 function buildGraveyard(){
   applyTheme(THEME.night); addGround(0x263021);
+  // spooky dark hills that loom close and fade into the night fog
+  addMountains({ color:0x232a20, sides:8, minH:100, maxH:230, jitter:0.24, minR:340, maxR:470, minRad:80, maxRad:150, count:34 });
   // moon
   const moon=new THREE.Mesh(new THREE.SphereGeometry(30,20,16), new THREE.MeshBasicMaterial({color:0xdfe6ff}));
   moon.position.set(-260,220,-340); worldGroup.add(moon);
