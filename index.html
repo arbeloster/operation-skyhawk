@@ -114,6 +114,25 @@
   #friends-btn { position:absolute; bottom:34px; left:40px; font-family:inherit; font-size:16px; letter-spacing:2px;
     padding:10px 22px; border:2px solid #ffd23f; background:rgba(32,26,10,.6); color:#ffd23f; cursor:pointer; box-shadow:0 0 12px rgba(255,210,63,.3); }
   #friends-btn:hover { background:rgba(50,42,16,.8); }
+  #admin-btn { position:absolute; top:34px; left:40px; font-family:inherit; font-size:15px; letter-spacing:2px;
+    padding:9px 18px; border:2px solid #ff5a5a; background:rgba(40,10,10,.6); color:#ff8a8a; cursor:pointer; display:none;
+    box-shadow:0 0 12px rgba(255,80,80,.3); }
+  #admin-btn:hover { background:rgba(60,16,16,.85); }
+  #admin { position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:13; background:rgba(0,0,0,.78); }
+  #admin .card { background:#140e0e; border:2px solid #ff5a5a; padding:24px 28px; text-align:center; box-shadow:0 0 32px rgba(255,80,80,.4); max-width:360px; }
+  #admin h2 { color:#ffb0b0; letter-spacing:3px; margin-bottom:10px; font-size:24px; }
+  #admin input { font-family:inherit; font-size:20px; padding:10px 14px; width:270px; background:#0a0d08;
+    border:2px solid #6b3434; color:#f0d8d8; text-align:center; letter-spacing:2px; text-transform:uppercase; }
+  #admin input:focus { outline:none; border-color:#ff5a5a; }
+  #admin input#admin-coins { text-transform:none; }
+  .adm-btn { font-family:inherit; font-size:15px; letter-spacing:1px; padding:9px 14px; margin:4px; cursor:pointer; border:2px solid #7dff7d; background:#1e2b12; color:#7dff7d; }
+  .adm-btn.danger { border-color:#ff5a5a; background:#2b1212; color:#ff8a8a; }
+  .adm-btn.warn { border-color:#ffd23f; background:#2a2410; color:#ffd23f; }
+  #admin-info { color:#d8e4bc; font-size:15px; letter-spacing:1px; margin:8px 0; min-height:20px; }
+  #admin-msg { min-height:20px; font-size:14px; letter-spacing:1px; margin-top:6px; }
+  #ban-overlay { position:fixed; inset:0; display:none; z-index:30; background:rgba(20,0,0,.93); color:#ff8a8a;
+    font-family:inherit; text-align:center; flex-direction:column; align-items:center; justify-content:center; letter-spacing:3px; padding:20px; }
+  #ban-overlay h1 { color:#ff4444; font-size:48px; text-shadow:0 0 16px #900; margin-bottom:10px; }
   #friend-list { display:flex; flex-direction:column; gap:6px; margin:8px auto 0; max-width:320px; }
   .fr-row { display:flex; align-items:center; justify-content:space-between; background:rgba(10,14,6,.6);
     border:1px solid #3d4a2a; padding:7px 12px; font-size:15px; color:#c8d6b0; letter-spacing:1px; }
@@ -242,6 +261,7 @@
   <button class="btn" id="gfx-btn" style="margin-top:10px;font-size:15px;padding:9px 22px;border-color:#35c8ff;color:#35c8ff;text-shadow:0 0 8px #068;background:#0e2230;box-shadow:0 0 14px rgba(53,200,255,.25)">🎨 GRAPHICS: HIGH</button>
   <button id="signin-btn">👤 SIGN IN</button>
   <button id="friends-btn">🧑‍🤝‍🧑 FRIENDS</button>
+  <button id="admin-btn">🛡️ ADMIN</button>
 </div>
 
 <div id="friends">
@@ -280,6 +300,32 @@
   </div>
 </div>
 
+<div id="admin">
+  <div class="card">
+    <h2>🛡️ ADMIN PANEL</h2>
+    <p class="sub">Type a player's ID:</p>
+    <input id="admin-id" maxlength="12" placeholder="PLAYER ID" autocomplete="off" />
+    <button class="adm-btn" id="admin-look" style="margin-top:8px">🔎 LOOK UP</button>
+    <div id="admin-info"></div>
+    <div id="admin-actions" style="display:none">
+      <div><button class="adm-btn danger" id="admin-ban">🚫 BAN</button>
+           <button class="adm-btn" id="admin-unban">✅ UNBAN</button>
+           <button class="adm-btn warn" id="admin-kick">👢 KICK</button></div>
+      <div style="margin-top:10px;display:flex;gap:6px;justify-content:center;align-items:center">
+        <input id="admin-coins" type="number" min="1" placeholder="COINS" style="width:130px;font-size:18px" />
+        <button class="adm-btn" id="admin-give">🪙 GIVE</button>
+      </div>
+    </div>
+    <div id="admin-msg"></div>
+    <button class="btn" id="admin-close" style="margin-top:12px;font-size:15px;padding:8px 18px">◀ CLOSE</button>
+  </div>
+</div>
+
+<div id="ban-overlay">
+  <h1>🚫 BANNED</h1>
+  <div style="font-size:18px">You have been banned from Operation Skyhawk.</div>
+</div>
+
 <div id="shop" class="screen">
   <div class="classified">// DRONE HANGAR //</div>
   <h1>🛠️ WEAPON SHOP</h1>
@@ -299,7 +345,7 @@
 <!-- Firebase: the shared online pilot roster ("SkyNet") -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp, arrayUnion }
+  import { getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp, arrayUnion, increment }
     from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
   import { getDatabase, ref as dbRef, set as dbSet, update as dbUpdate, onValue, onDisconnect, remove as dbRemove }
     from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
@@ -342,7 +388,14 @@
     watch(id, cb){ id=cleanId(id); return onSnapshot(P(id), s=> cb(s.exists()? s.data():null), ()=>cb(null)); },
     // (owner tool) gift weapon id(s) to an existing pilot; they receive them next time they sign in
     async grantGuns(id, guns){ id=cleanId(id); if(!id||!guns||!guns.length) return false;
-      try { await setDoc(P(id), { grant: arrayUnion(...guns) }, {merge:true}); return true; } catch(e){ return false; } }
+      try { await setDoc(P(id), { grant: arrayUnion(...guns) }, {merge:true}); return true; } catch(e){ return false; } },
+    // (owner tools) moderation + coin gifts
+    async setBanned(id, val){ id=cleanId(id); if(!id) return false;
+      try { await setDoc(P(id), { banned: !!val }, {merge:true}); return true; } catch(e){ return false; } },
+    async kickPilot(id){ id=cleanId(id); if(!id) return false;
+      try { await setDoc(P(id), { kick: Date.now() }, {merge:true}); return true; } catch(e){ return false; } },
+    async giveCoins(id, amount){ id=cleanId(id); amount=Math.floor(+amount||0); if(!id||amount<=0) return false;
+      try { await setDoc(P(id), { coinGrant: increment(amount) }, {merge:true}); return true; } catch(e){ return false; } }
   };
 
   // ---- Realtime multiplayer: shared "rooms" where drones fly together ----
@@ -1209,7 +1262,7 @@ async function applyGrants(){
     if(changed){ saveGuns(); if(document.getElementById('shop').style.display!=='none') renderShop(); }
   }
 }
-addEventListener('skynet-ready', ()=>{ applyGrants(); });
+addEventListener('skynet-ready', ()=>{ applyGrants(); watchSelf(); refreshAdmin(); });
 
 // ---- Drone upgrades (leveled, up to 3 each) -------------------------
 const UPGRADES = [
@@ -1450,6 +1503,7 @@ function setupHUD(){
     timeLbl.textContent='TIME'; bestRow.style.display='none'; mh.textContent='◈ NO LIMITS — JUST FLY'; }
 }
 function startGame(){
+  if (typeof iamBanned!=='undefined' && iamBanned){ document.getElementById('ban-overlay').style.display='flex'; return; }
   // build the chosen map + mode
   waterReflectors.forEach(r=>{ try{ r.dispose && r.dispose(); }catch(e){} }); waterReflectors=[];
   grassMeshes.forEach(g=>{ try{ g.dispose && g.dispose(); }catch(e){} }); grassMeshes=[]; snowParticles=null;
@@ -1573,6 +1627,7 @@ async function saveAccount(){
   localStorage.setItem(PNAME,name); localStorage.setItem(PID,id);
   await window.SkyNet.createAccount(id, name);
   applyGrants();                         // pick up any weapons gifted to this account
+  watchSelf(); refreshAdmin();           // watch for bans/kicks/coins; show admin tools if owner
   btn.disabled=false;
   document.getElementById('account').style.display='none';
   refreshSignin();
@@ -1588,6 +1643,54 @@ document.getElementById('name-save').onclick=saveAccount;
 document.getElementById('name-input').addEventListener('keydown', e=>{ e.stopPropagation(); if (e.code==='Enter') document.getElementById('id-input').focus(); });
 document.getElementById('id-input').addEventListener('keydown', e=>{ e.stopPropagation(); if (e.code==='Enter') saveAccount(); });
 refreshSignin();
+
+// ---- Admin panel (only the owner account can see & use it) ----------
+const ADMIN_IDS = ['OWNER001'];
+function isAdmin(){ return ADMIN_IDS.includes((myId()||'').toUpperCase()); }
+function refreshAdmin(){ const b=document.getElementById('admin-btn'); if(b) b.style.display = isAdmin() ? 'block' : 'none'; }
+function adminMsg(t,c){ const m=document.getElementById('admin-msg'); m.textContent=t; m.style.color=c||'#ffd23f'; }
+let adminTarget=null;
+async function adminLookup(){
+  const id = window.SkyNet ? window.SkyNet.cleanId(document.getElementById('admin-id').value) : '';
+  document.getElementById('admin-actions').style.display='none'; adminMsg('','');
+  const info=document.getElementById('admin-info');
+  if(!id){ info.textContent='Type an ID first.'; adminTarget=null; return; }
+  if(!window.SkyNet){ info.textContent='Connecting…'; return; }
+  info.textContent='🔎 Looking…';
+  let p=null; try{ p=await window.SkyNet.getPilot(id); }catch(e){ info.textContent='❌ Network problem'; return; }
+  if(!p){ info.textContent='❌ No player with that ID.'; adminTarget=null; return; }
+  adminTarget=id;
+  info.innerHTML = `👤 <b>${p.name||id}</b> <span style="color:#6f7a55">#${id}</span><br><span style="color:#8a9b6a">${p.banned?'🚫 BANNED':'active'} · coins gifted: ${p.coinGrant||0}</span>`;
+  document.getElementById('admin-actions').style.display='block';
+}
+document.getElementById('admin-btn').onclick=()=>{ document.getElementById('admin').style.display='flex'; document.getElementById('admin-info').textContent=''; document.getElementById('admin-actions').style.display='none'; adminMsg('',''); setTimeout(()=>document.getElementById('admin-id').focus(),30); };
+document.getElementById('admin-close').onclick=()=>{ document.getElementById('admin').style.display='none'; };
+document.getElementById('admin-look').onclick=adminLookup;
+document.getElementById('admin-id').addEventListener('keydown', e=>{ e.stopPropagation(); if(e.code==='Enter') adminLookup(); });
+document.getElementById('admin-coins').addEventListener('keydown', e=>{ e.stopPropagation(); });
+document.getElementById('admin-ban').onclick=async ()=>{ if(!adminTarget||!window.SkyNet) return; adminMsg('Banning…','#35c8ff'); const ok=await window.SkyNet.setBanned(adminTarget,true); adminMsg(ok?('🚫 Banned '+adminTarget):'Failed','#ff6a6a'); };
+document.getElementById('admin-unban').onclick=async ()=>{ if(!adminTarget||!window.SkyNet) return; adminMsg('Unbanning…','#35c8ff'); const ok=await window.SkyNet.setBanned(adminTarget,false); adminMsg(ok?('✅ Unbanned '+adminTarget):'Failed', ok?'#47ff6a':'#ff6a6a'); };
+document.getElementById('admin-kick').onclick=async ()=>{ if(!adminTarget||!window.SkyNet) return; adminMsg('Kicking…','#35c8ff'); const ok=await window.SkyNet.kickPilot(adminTarget); adminMsg(ok?('👢 Kicked '+adminTarget):'Failed', ok?'#ffd23f':'#ff6a6a'); };
+document.getElementById('admin-give').onclick=async ()=>{ if(!adminTarget||!window.SkyNet) return; const amt=Math.floor(+document.getElementById('admin-coins').value||0); if(amt<=0){ adminMsg('Enter a coin amount','#ffd23f'); return; } adminMsg('Sending…','#35c8ff'); const ok=await window.SkyNet.giveCoins(adminTarget,amt); adminMsg(ok?('🪙 Gave '+amt+' coins to '+adminTarget):'Failed', ok?'#47ff6a':'#ff6a6a'); if(ok) document.getElementById('admin-coins').value=''; };
+
+// ---- Watch my own account for bans / kicks / coin gifts (live) ------
+let selfUnsub=null, selfInit=false, lastKick=0, iamBanned=false;
+function enforceBan(){ iamBanned=true; if(state.playing){ state.paused=false; exitToMenu(); } document.getElementById('ban-overlay').style.display='flex'; }
+function clearBan(){ if(iamBanned){ iamBanned=false; document.getElementById('ban-overlay').style.display='none'; } }
+function getKicked(){ state.paused=false; exitToMenu(); const c=document.getElementById('cheer'); c.textContent='👢 KICKED — you can rejoin'; c.style.opacity=1; setTimeout(()=>c.style.opacity=0,1800); }
+function applyCoinGrant(d){ const id=myId(); if(!id) return; const total=d.coinGrant||0, key='skyhawk-coins-claimed-'+id, claimed=parseInt(localStorage.getItem(key)||'0',10);
+  if(total>claimed){ addCoins(total-claimed); localStorage.setItem(key, total); } }
+function watchSelf(){
+  if(selfUnsub){ try{selfUnsub();}catch(e){} selfUnsub=null; } selfInit=false; lastKick=0;
+  const id=myId(); if(!id || !window.SkyNet || !window.SkyNet.watch) return;
+  selfUnsub = window.SkyNet.watch(id, d=>{
+    if(!d) return;
+    applyCoinGrant(d);
+    if(d.banned) enforceBan(); else clearBan();
+    if(!selfInit){ lastKick=d.kick||0; selfInit=true; return; }
+    if(d.kick && d.kick>lastKick){ lastKick=d.kick; if(state.playing) getKicked(); }
+  });
+}
 
 // ---- Friends list (stored as IDs; live status from SkyNet) ----------
 const FKEY='skyhawk-friends';
