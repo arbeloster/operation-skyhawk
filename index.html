@@ -299,7 +299,7 @@
 <!-- Firebase: the shared online pilot roster ("SkyNet") -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp }
+  import { getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp, arrayUnion }
     from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
   import { getDatabase, ref as dbRef, set as dbSet, update as dbUpdate, onValue, onDisconnect, remove as dbRemove }
     from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
@@ -339,7 +339,10 @@
     async getPilot(id){ id=cleanId(id); if(!id) return null;
       try { const s=await getDoc(P(id)); return s.exists()? s.data():null; } catch(e){ return null; } },
     // live-watch a pilot; cb(data|null) fires on every change. returns an unsubscribe fn
-    watch(id, cb){ id=cleanId(id); return onSnapshot(P(id), s=> cb(s.exists()? s.data():null), ()=>cb(null)); }
+    watch(id, cb){ id=cleanId(id); return onSnapshot(P(id), s=> cb(s.exists()? s.data():null), ()=>cb(null)); },
+    // (owner tool) gift weapon id(s) to an existing pilot; they receive them next time they sign in
+    async grantGuns(id, guns){ id=cleanId(id); if(!id||!guns||!guns.length) return false;
+      try { await setDoc(P(id), { grant: arrayUnion(...guns) }, {merge:true}); return true; } catch(e){ return false; } }
   };
 
   // ---- Realtime multiplayer: shared "rooms" where drones fly together ----
@@ -1196,6 +1199,17 @@ state.owned.add('basic');
 state.gun = localStorage.getItem('skyhawk-equip') || 'basic';
 if (!state.owned.has(state.gun)) state.gun = 'basic';
 function saveGuns(){ localStorage.setItem('skyhawk-guns', JSON.stringify([...state.owned])); localStorage.setItem('skyhawk-equip', state.gun); }
+// Gifted weapons: if the signed-in pilot's online account has a "grant" list, add those guns on this device
+async function applyGrants(){
+  const id = myId(); if(!id || !window.SkyNet || !window.SkyNet.getPilot) return;
+  let p=null; try{ p = await window.SkyNet.getPilot(id); }catch(e){ return; }
+  if(p && Array.isArray(p.grant)){
+    let changed=false;
+    p.grant.forEach(g=>{ if(WNAME[g] && !state.owned.has(g)){ state.owned.add(g); changed=true; } });
+    if(changed){ saveGuns(); if(document.getElementById('shop').style.display!=='none') renderShop(); }
+  }
+}
+addEventListener('skynet-ready', ()=>{ applyGrants(); });
 
 // ---- Drone upgrades (leveled, up to 3 each) -------------------------
 const UPGRADES = [
@@ -1558,6 +1572,7 @@ async function saveAccount(){
   }
   localStorage.setItem(PNAME,name); localStorage.setItem(PID,id);
   await window.SkyNet.createAccount(id, name);
+  applyGrants();                         // pick up any weapons gifted to this account
   btn.disabled=false;
   document.getElementById('account').style.display='none';
   refreshSignin();
