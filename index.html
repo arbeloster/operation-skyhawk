@@ -1768,11 +1768,13 @@ async function saveAccount(){
   if(!id){ acctMsg('❌ Type an ID (letters & numbers).', '#ff6a6a'); return; }
   if(!window.SkyNet){ acctMsg('⏳ Connecting… try again in a sec.', '#ffd23f'); return; }
   const btn=document.getElementById('name-save'); btn.disabled=true;
-  if(id!==myId()){                                   // claiming a new ID — make sure it's free
+  if(id!==myId()){                                   // claiming an ID (new, or signing back into your own)
     acctMsg('🔎 Checking ID…', '#35c8ff');
-    let taken=false; try{ taken=await window.SkyNet.idTaken(id); }
+    let existing=null; try{ existing=await window.SkyNet.getPilot(id); }
     catch(e){ acctMsg('❌ Network problem — try again', '#ff6a6a'); btn.disabled=false; return; }
-    if(taken){ acctMsg('❌ ID USED — pick a different one!', '#ff6a6a'); btn.disabled=false; return; }
+    if(existing && (existing.name||'').toUpperCase()!==name){   // exists but wrong name = someone else's
+      acctMsg("❌ ID taken. To sign back in, type that pilot's exact NAME.", '#ff6a6a'); btn.disabled=false; return;
+    }
   }
   localStorage.setItem(PNAME,name); localStorage.setItem(PID,id);
   await window.SkyNet.createAccount(id, name);
