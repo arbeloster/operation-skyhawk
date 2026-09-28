@@ -108,9 +108,9 @@
   #account, #friends { position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:12; background:rgba(0,0,0,.72); }
   #account .card, #friends .card { background:#12180e; border:2px solid #35c8ff; padding:28px 34px; text-align:center; box-shadow:0 0 32px rgba(53,200,255,.4); }
   #account h2, #friends h2 { color:#e8f0d8; letter-spacing:3px; margin-bottom:8px; font-size:26px; }
-  #name-input, #friend-input, #id-input { font-family:inherit; font-size:22px; padding:11px 16px; width:300px; background:#0a0d08;
+  #name-input, #friend-input, #id-input, #pass-input { font-family:inherit; font-size:22px; padding:11px 16px; width:300px; background:#0a0d08;
     border:2px solid #566b34; color:#d8e4bc; text-align:center; letter-spacing:2px; text-transform:uppercase; }
-  #name-input:focus, #friend-input:focus, #id-input:focus { outline:none; border-color:#35c8ff; }
+  #name-input:focus, #friend-input:focus, #id-input:focus, #pass-input:focus { outline:none; border-color:#35c8ff; }
   #friends-btn { position:absolute; bottom:34px; left:40px; font-family:inherit; font-size:16px; letter-spacing:2px;
     padding:10px 22px; border:2px solid #ffd23f; background:rgba(32,26,10,.6); color:#ffd23f; cursor:pointer; box-shadow:0 0 12px rgba(255,210,63,.3); }
   #friends-btn:hover { background:rgba(50,42,16,.8); }
@@ -299,6 +299,8 @@
     <input id="name-input" maxlength="16" placeholder="YOUR NAME" autocomplete="off" />
     <p class="sub" style="margin-top:12px">Your ID <span style="color:#6f7a55">(letters & numbers — friends add you with this)</span>:</p>
     <input id="id-input" maxlength="12" placeholder="YOUR ID" autocomplete="off" />
+    <p class="sub" style="margin-top:12px">Passcode 🔒 <span style="color:#6f7a55">(keep it SECRET — needed to log in)</span>:</p>
+    <input id="pass-input" maxlength="16" placeholder="PASSCODE" autocomplete="off" />
     <div id="acct-msg" style="min-height:20px;font-size:14px;letter-spacing:1px;margin-top:8px"></div>
     <button class="btn" id="name-save" style="margin-top:6px">✔ CREATE</button>
   </div>
@@ -397,9 +399,11 @@
     async idTaken(id){ id=cleanId(id); if(!id) return false;
       try { return (await getDoc(P(id))).exists(); } catch(e){ return false; } },
     // claim/refresh an account with a unique ID + display name
-    async createAccount(id, name){ id=cleanId(id); if(!id) return false;
+    async createAccount(id, name, pass){ id=cleanId(id); if(!id) return false;
       S.myId=id; S.name=name||'PILOT'; S.status='menu'; S.mode=null; S.map=null;
-      try { await setDoc(P(id), { id, name:(name||'PILOT'), status:'menu', mode:null, map:null, lastSeen: serverTimestamp() }, {merge:true}); } catch(e){}
+      const d={ id, name:(name||'PILOT'), status:'menu', mode:null, map:null, lastSeen: serverTimestamp() };
+      if(pass) d.pass=pass;                       // store the passcode HASH (never plain text)
+      try { await setDoc(P(id), d, {merge:true}); } catch(e){}
       return true; },
     // update my live status: 'menu' (in a menu) or 'playing' (deployed)
     async setStatus(status, mode, map){ if(!S.myId) return;
@@ -1761,23 +1765,38 @@ function myName(){ return localStorage.getItem(PNAME)||''; }
 function myId(){ return localStorage.getItem(PID)||''; }
 function refreshSignin(){ const n=myName(); document.getElementById('signin-btn').textContent = n ? ('👤 '+n) : '👤 SIGN IN'; }
 function acctMsg(t,c){ const m=document.getElementById('acct-msg'); m.textContent=t; m.style.color=c||'#ffd23f'; }
+// hash the passcode so it's never stored as plain text
+async function hashPass(s){
+  s=(s||'').trim().toUpperCase();
+  const buf=await crypto.subtle.digest('SHA-256', new TextEncoder().encode('skyhawk:'+s));
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
 async function saveAccount(){
   const name=(document.getElementById('name-input').value.trim()||'PILOT').toUpperCase();
   const id = window.SkyNet ? window.SkyNet.cleanId(document.getElementById('id-input').value)
                            : (document.getElementById('id-input').value||'').trim().toUpperCase();
+  const passRaw=(document.getElementById('pass-input').value||'').trim();
   if(!id){ acctMsg('❌ Type an ID (letters & numbers).', '#ff6a6a'); return; }
   if(!window.SkyNet){ acctMsg('⏳ Connecting… try again in a sec.', '#ffd23f'); return; }
   const btn=document.getElementById('name-save'); btn.disabled=true;
-  if(id!==myId()){                                   // claiming an ID (new, or signing back into your own)
+  let passHash=null;
+  if(id!==myId()){                                   // creating a new account, or logging into one
+    if(!passRaw){ acctMsg('❌ Enter your passcode.', '#ff6a6a'); btn.disabled=false; return; }
     acctMsg('🔎 Checking ID…', '#35c8ff');
     let existing=null; try{ existing=await window.SkyNet.getPilot(id); }
     catch(e){ acctMsg('❌ Network problem — try again', '#ff6a6a'); btn.disabled=false; return; }
-    if(existing && (existing.name||'').toUpperCase()!==name){   // exists but wrong name = someone else's
-      acctMsg("❌ ID taken. To sign back in, type that pilot's exact NAME.", '#ff6a6a'); btn.disabled=false; return;
+    passHash=await hashPass(passRaw);
+    if(existing){
+      if(existing.pass){                             // has a passcode → it must match
+        if(passHash!==existing.pass){ acctMsg('❌ Wrong passcode for that ID.', '#ff6a6a'); btn.disabled=false; return; }
+      } else if((existing.name||'').toUpperCase()!==name){   // old account (no passcode) → name must match, then we set one
+        acctMsg("❌ ID taken. Type its exact NAME to claim it.", '#ff6a6a'); btn.disabled=false; return;
+      }
     }
   }
+  if(!passHash && passRaw) passHash=await hashPass(passRaw);   // set/change your passcode from your own device too
   localStorage.setItem(PNAME,name); localStorage.setItem(PID,id);
-  await window.SkyNet.createAccount(id, name);
+  await window.SkyNet.createAccount(id, name, passHash);   // passHash null when just editing your own device
   applyGrants();                         // pick up any weapons gifted to this account
   watchSelf(); refreshAdmin();           // watch for bans/kicks/coins; show admin tools if owner
   btn.disabled=false;
@@ -1787,13 +1806,15 @@ async function saveAccount(){
 document.getElementById('signin-btn').onclick=()=>{
   document.getElementById('name-input').value=myName();
   document.getElementById('id-input').value=myId();
+  document.getElementById('pass-input').value='';
   acctMsg('','');
   document.getElementById('account').style.display='flex';
   setTimeout(()=>document.getElementById('name-input').focus(),30);
 };
 document.getElementById('name-save').onclick=saveAccount;
 document.getElementById('name-input').addEventListener('keydown', e=>{ e.stopPropagation(); if (e.code==='Enter') document.getElementById('id-input').focus(); });
-document.getElementById('id-input').addEventListener('keydown', e=>{ e.stopPropagation(); if (e.code==='Enter') saveAccount(); });
+document.getElementById('id-input').addEventListener('keydown', e=>{ e.stopPropagation(); if (e.code==='Enter') document.getElementById('pass-input').focus(); });
+document.getElementById('pass-input').addEventListener('keydown', e=>{ e.stopPropagation(); if (e.code==='Enter') saveAccount(); });
 refreshSignin();
 
 // ---- Admin panel (only the owner account can see & use it) ----------
