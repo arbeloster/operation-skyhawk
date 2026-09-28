@@ -153,6 +153,12 @@
   #party h2, #invite h2 { color:#cfeaff; letter-spacing:3px; margin-bottom:8px; font-size:24px; }
   #party-list { display:flex; flex-direction:column; gap:6px; margin:10px auto 12px; max-width:320px; }
   #party-note { color:#9fb0c8; font-size:13px; letter-spacing:1px; margin:4px 0 10px; min-height:18px; }
+  #party-1v1 { border-color:#ff7a7a; color:#ffc0c0; box-shadow:0 0 14px rgba(255,90,90,.35); }
+  #pvp-hud { position:fixed; top:100px; left:50%; transform:translateX(-50%); display:none; flex-direction:column; gap:7px; z-index:8; font-family:inherit; pointer-events:none; }
+  #pvp-hud .pvp-b { text-align:center; color:#dfe8c8; font-size:12px; letter-spacing:2px; text-shadow:0 0 6px #000; }
+  #pvp-hud .pvp-wrap { width:280px; height:14px; background:rgba(0,0,0,.55); border:1px solid #3d4a2a; margin:3px auto 0; box-shadow:0 0 10px rgba(0,0,0,.5); }
+  #pvp-hud .pvp-fill { height:100%; width:100%; background:#47ff6a; transition:width .12s linear; }
+  #pvp-hud .pvp-fill.enemy { background:#ff4040; }
 
   #pause { position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:13; background:rgba(0,0,0,.72); }
   #pause .card { background:#12180e; border:2px solid #7dff7d; padding:30px 42px; text-align:center;
@@ -215,6 +221,11 @@
 <div id="cheer">WAYPOINT CLEARED</div>
 <div id="crash-flash"></div>
 <div id="death">DRONE DESTROYED<br><span style="font-size:24px">RESPAWN IN <span id="respawn-num">3</span>...</span></div>
+
+<div id="pvp-hud">
+  <div class="pvp-b">🛡 YOUR BASE<div class="pvp-wrap"><div id="pvp-mine" class="pvp-fill"></div></div></div>
+  <div class="pvp-b">🎯 ENEMY BASE — DESTROY IT!<div class="pvp-wrap"><div id="pvp-enemy" class="pvp-fill enemy"></div></div></div>
+</div>
 
 <!-- On-screen controls for phones & tablets -->
 <div id="touch">
@@ -297,6 +308,7 @@
     <div id="party-list"></div>
     <p id="party-note"></p>
     <button class="btn" id="party-start" style="display:none">🚀 START TOGETHER</button>
+    <button class="btn" id="party-1v1" style="display:none;margin-top:8px">⚔️ 1v1 BATTLE</button>
     <button class="btn" id="party-more" style="display:none;margin-top:8px">➕ INVITE MORE</button>
     <button class="btn gold" id="party-leave" style="margin-top:8px">◀ LEAVE PARTY</button>
   </div>
@@ -504,8 +516,8 @@
     try { await dbSet(partyMeRef, { id:S.myId, name:(S.name||S.myId), t:Date.now() }); } catch(e){}
     partyUnsub = onValue(dbRef(rtdb, `rooms/party-${hostId}`), snap=> onParty(snap.val()||null), ()=>onParty(null));
   };
-  window.SkyNet.startParty = async function(mode, map){ if(!partyHostId) return false;
-    try { await dbSet(dbRef(rtdb, `rooms/party-${partyHostId}/start`), { mode:mode||'freestyle', map:map||'flat', t:Date.now() }); return true; }
+  window.SkyNet.startParty = async function(mode, map, pvp){ if(!partyHostId) return false;
+    try { await dbSet(dbRef(rtdb, `rooms/party-${partyHostId}/start`), { mode:mode||'freestyle', map:map||'flat', pvp:!!pvp, t:Date.now() }); return true; }
     catch(e){ return false; } };
   window.SkyNet.leaveParty = function(){
     if(partyMeRef){ try { onDisconnect(partyMeRef).cancel(); } catch(e){} try { dbRemove(partyMeRef); } catch(e){} partyMeRef=null; }
@@ -513,6 +525,21 @@
     partyHostId=null;
   };
   window.SkyNet.getPartyHost = function(){ return partyHostId; };
+
+  // ---- 1v1 base battle (shared under the game room, so existing DB rules allow it) ----
+  window.SkyNet.pvpSetBase = async function(room, hp, max){ if(!S.myId||!room) return;
+    try { await dbSet(dbRef(rtdb, `rooms/${room}/pvp/bases/${S.myId}`), { id:S.myId, hp, max }); } catch(e){} };
+  window.SkyNet.pvpSendHit = async function(room, targetId, k, dmg){ targetId=cleanId(targetId); if(!room||!targetId) return;
+    const id = Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+    try { await dbSet(dbRef(rtdb, `rooms/${room}/pvp/hits/${targetId}/${id}`), { k, dmg, t:Date.now() }); } catch(e){} };
+  window.SkyNet.pvpWatchBases = function(room, cb){ if(!room) return ()=>{};
+    return onValue(dbRef(rtdb, `rooms/${room}/pvp/bases`), snap=>cb(snap.val()||{}), ()=>cb({})); };
+  window.SkyNet.pvpWatchHits = function(room, cb){ if(!S.myId||!room) return ()=>{};
+    return onValue(dbRef(rtdb, `rooms/${room}/pvp/hits/${S.myId}`), snap=>cb(snap.val()||{}), ()=>cb({})); };
+  window.SkyNet.pvpClearHit = function(room, id){ if(!S.myId||!room||!id) return;
+    try { dbRemove(dbRef(rtdb, `rooms/${room}/pvp/hits/${S.myId}/${id}`)); } catch(e){} };
+  window.SkyNet.pvpClearAll = async function(room){ if(!room) return;
+    try { await dbRemove(dbRef(rtdb, `rooms/${room}/pvp`)); } catch(e){} };
 
   // remember who we are across visits, and keep a heartbeat so friends see us online
   S.myId = cleanId(localStorage.getItem('skyhawk-id')||'') || null;
@@ -646,7 +673,14 @@ const worldGroup = new THREE.Group(); scene.add(worldGroup);
 const courseGroup = new THREE.Group(); scene.add(courseGroup);
 const enemyGroup = new THREE.Group(); scene.add(enemyGroup);
 const fxGroup = new THREE.Group(); scene.add(fxGroup);
+const pvpGroup = new THREE.Group(); scene.add(pvpGroup);        // 1v1 base structures live here
 function clearGroup(g){ while(g.children.length){ g.remove(g.children[0]); } }
+
+// ---- 1v1 base battle state ----
+const BASE_HP = 500;                                            // 5× a Hornet's 100 HP
+let pendingPvp = null;                                          // set by launchParty → consumed by startGame
+let pvp = { on:false, ended:false, room:null, enemyId:null, iAmHost:false,
+            myBase:null, enemyBase:null, basesUnsub:null, hitsUnsub:null, appliedHits:new Set() };
 
 // ======================================================================
 //  MAP BUILDERS
@@ -1161,12 +1195,32 @@ function fireLightning(){
     damageEnemy(e, 6);
   }
 }
+function firePvpHoming(dir){
+  const tgt = (pvp.enemyId && remotePlayers[pvp.enemyId]) ? remotePlayers[pvp.enemyId].group : null;
+  for (let k=0;k<2;k++){
+    const b = makeTracer(0xffd24a, 0xff7a00); b.scale.set(1.4,1.4,1.4);
+    const off = new THREE.Vector3((k?1:-1)*1.3,0,0).applyQuaternion(camera.quaternion);
+    b.position.copy(camera.position).addScaledVector(dir,1.6).add(off); orientTracer(b, dir);
+    b.userData = { vel: dir.clone().multiplyScalar(70), life: 5, kind:'homing', pvpTarget: tgt };
+    fxGroup.add(b); bullets.push(b);
+  }
+}
 function shoot(){
-  if (!state.playing || state.paused || state.mode!=='combat' || state.dead) return;
+  if (!state.playing || state.paused || state.dead) return;
+  if (state.mode!=='combat' && !pvp.on) return;
   const rate = FIRE_RATE[state.gun] || 0.22;
   if (state.time - lastShot < rate) return;
   lastShot = state.time;
   const dir = camForward();
+  if (pvp.on){                                   // 1v1: every gun makes a bolt that can hit players & bases
+    const g = state.gun;
+    if (g==='rocket')      fireRocket(dir);
+    else if (g==='homing') firePvpHoming(dir);
+    else if (g==='laser')  fireBolt(dir, 'laser',  0xff4466, 0xff0033);
+    else if (g==='freeze') fireBolt(dir, 'freeze', 0x9fe0ff, 0x33aaff);
+    else                   fireBolt(dir, 'normal', 0x9effc0, 0x30ff90);   // basic/triple/lightning → bolt
+    shootSound(); return;
+  }
   switch (state.gun){
     case 'laser':     fireBolt(dir, 'laser',  0xff4466, 0xff0033); break;
     case 'rocket':    fireRocket(dir); break;
@@ -1694,6 +1748,7 @@ function setupHUD(){
 function startGame(){
   if (typeof iamBanned!=='undefined' && iamBanned){ document.getElementById('ban-overlay').style.display='flex'; return; }
   if (typeof iamKicked!=='undefined' && iamKicked){ document.getElementById('kick-overlay').style.display='flex'; return; }
+  pvpTeardown();          // clear any leftover 1v1 battle (a fresh one is set up below if pending)
   // build the chosen map + mode
   waterReflectors.forEach(r=>{ try{ r.dispose && r.dispose(); }catch(e){} }); waterReflectors=[];
   grassMeshes.forEach(g=>{ try{ g.dispose && g.dispose(); }catch(e){} }); grassMeshes=[]; snowParticles=null;
@@ -1719,6 +1774,7 @@ function startGame(){
   showBest(); state.playing=true; refreshTouchUI();
   if (window.SkyNet) window.SkyNet.setStatus('playing', state.mode, state.map);
   joinRoomForGame();
+  if (pendingPvp){ setupPvp(pendingPvp.room); pendingPvp=null; }   // 1v1: build bases & start the battle
   if (document.activeElement) document.activeElement.blur();
 }
 function winGame(){
@@ -1807,6 +1863,7 @@ function resumeGame(){
 }
 function exitToMenu(){
   state.playing=false; state.paused=false;
+  pvpTeardown();
   if (motorGain) motorGain.gain.value=0;
   document.getElementById('pause').style.display='none';
   document.getElementById('osd').style.display='none';
@@ -2057,8 +2114,9 @@ function openParty(){
   const iAmHost = !!host && host===myId();
   document.getElementById('party-start').style.display = iAmHost ? 'block' : 'none';
   document.getElementById('party-more').style.display  = iAmHost ? 'block' : 'none';
+  document.getElementById('party-1v1').style.display = 'none';   // shown once exactly 2 pilots are in
   document.getElementById('party-note').textContent = iAmHost
-    ? 'When your friend shows up below, press START TOGETHER!'
+    ? 'When your friend shows up below, press START TOGETHER (team up) or 1v1 BATTLE (fight)!'
     : 'Waiting for the host to start the game…';
   renderPartyMembers(null);
   document.getElementById('party').style.display='flex';
@@ -2067,6 +2125,8 @@ function renderPartyMembers(members){
   const list=document.getElementById('party-list'); if(!list) return;
   const ids = members ? Object.keys(members) : [];
   const host = window.SkyNet ? window.SkyNet.getPartyHost() : null;
+  const iAmHost = !!host && host===myId();
+  const b1v1=document.getElementById('party-1v1'); if(b1v1) b1v1.style.display = (iAmHost && ids.length===2) ? 'block' : 'none';
   if(!ids.length){ list.innerHTML='<div class="fr-empty">Setting up the party…</div>'; return; }
   list.innerHTML = ids.map(id=>{
     const m=members[id]||{}, nm=m.name||id;
@@ -2095,7 +2155,8 @@ function launchParty(start){
   if(window.SkyNet) window.SkyNet.leaveParty();
   inParty=false;
   document.getElementById('party').style.display='none';
-  state.mode = start.mode||'freestyle'; state.map = start.map||'flat';
+  if(start.pvp){ state.mode='freestyle'; state.map=start.map||'flat'; pendingPvp={ room:host }; }  // 1v1 battle
+  else { state.mode = start.mode||'freestyle'; state.map = start.map||'flat'; }
   document.querySelectorAll('#mode-pick .modebtn').forEach(x=>x.classList.toggle('on', x.dataset.mode===state.mode));
   document.querySelectorAll('#map-pick .mapbtn').forEach(x=>x.classList.toggle('on', x.dataset.map===state.map));
   updateModeDesc();
@@ -2109,6 +2170,12 @@ function leavePartyUI(){
   document.getElementById('start').style.display='flex';
 }
 document.getElementById('party-start').onclick=()=>{ if(window.SkyNet) window.SkyNet.startParty(state.mode, state.map); };
+document.getElementById('party-1v1').onclick=async ()=>{
+  if(!window.SkyNet) return;
+  const room=myId();
+  await window.SkyNet.pvpClearAll(room);                 // wipe any old battle data first
+  window.SkyNet.startParty('freestyle', state.map, true);  // pvp:true → 1v1 base battle
+};
 document.getElementById('party-leave').onclick=leavePartyUI;
 document.getElementById('party-more').onclick=()=>{
   document.getElementById('party').style.display='none';
@@ -2218,6 +2285,7 @@ function leaveRoomAndClear(){ if(window.SkyNet && window.SkyNet.leaveRoom) windo
 function onRoomPlayers(players){
   const mine=myId(), seen={};
   for(const id in players){ if(id===mine) continue; const p=players[id]; if(!p) continue; seen[id]=1;
+    if(pvp.on && !pvp.enemyId) pvp.enemyId=id;               // the other pilot is my 1v1 opponent
     let rp=remotePlayers[id];
     if(!rp){ rp=makeRemoteDrone(p.name||id); remotePlayers[id]=rp; remoteGroup.add(rp.group); rp.group.position.set(+p.x||0,+p.y||1.2,+p.z||0); }
     rp.target={ x:+p.x||0, y:+p.y||1.2, z:+p.z||0, ry:+p.ry||0 };
@@ -2242,6 +2310,171 @@ function joinRoomForGame(){
 }
 
 // ======================================================================
+//  1v1 BASE BATTLE
+// ======================================================================
+function buildBase(pos, color){
+  const g = new THREE.Group(); g.position.copy(pos);
+  const plat = new THREE.Mesh(new THREE.CylinderGeometry(11,13,2,24),
+    new THREE.MeshStandardMaterial({color:0x20242a, metalness:.6, roughness:.5}));
+  plat.position.y=1; g.add(plat);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(11,0.5,10,32),
+    new THREE.MeshStandardMaterial({color, emissive:color, emissiveIntensity:1.8}));
+  ring.rotation.x=Math.PI/2; ring.position.y=2.1; g.add(ring);
+  const core = new THREE.Mesh(new THREE.CylinderGeometry(2.4,3.4,10,10),
+    new THREE.MeshStandardMaterial({color:0x2b3038, metalness:.7, roughness:.35}));
+  core.position.y=7; g.add(core);
+  const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(3.2),
+    new THREE.MeshStandardMaterial({color, emissive:color, emissiveIntensity:2.2}));
+  crystal.position.y=13.5; g.add(crystal);
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(12.5,20,14,0,Math.PI*2,0,Math.PI/2),
+    new THREE.MeshStandardMaterial({color, emissive:color, emissiveIntensity:.6, transparent:true, opacity:.16, side:THREE.DoubleSide}));
+  dome.position.y=2; g.add(dome);
+  g.userData = { crystal, dome, ring, color };
+  pvpGroup.add(g);
+  return g;
+}
+function scaleDome(base){
+  if(!base||!base.mesh||!base.mesh.userData) return;
+  const u=base.mesh.userData, f=Math.max(0.05, base.hp/base.max);
+  if(u.dome){ u.dome.scale.set(f,f,f); u.dome.material.opacity=0.02+0.16*f; }
+  if(u.crystal) u.crystal.material.emissiveIntensity = 0.5 + 1.9*f;
+}
+function updateBaseBars(){
+  if(pvp.myBase){ const el=document.getElementById('pvp-mine'); if(el) el.style.width=(Math.max(0,pvp.myBase.hp)/pvp.myBase.max*100)+'%'; }
+  if(pvp.enemyBase){ const el=document.getElementById('pvp-enemy'); if(el) el.style.width=(Math.max(0,pvp.enemyBase.hp)/pvp.enemyBase.max*100)+'%'; }
+}
+function bulletDmg(b){ const k=(b&&b.userData)?b.userData.kind:'normal';
+  return k==='rocket'?45 : k==='homing'?22 : k==='laser'?16 : k==='freeze'?12 : 10; }
+
+function setupPvp(room){
+  pvp.on=true; pvp.ended=false; pvp.room=room; pvp.enemyId=null; pvp.appliedHits=new Set();
+  pvp.iAmHost = (myId()===room);
+  const D=70, north=new THREE.Vector3(0,0,-D), south=new THREE.Vector3(0,0,D);
+  const myPos = pvp.iAmHost?north:south, enemyPos = pvp.iAmHost?south:north;
+  clearGroup(pvpGroup);
+  const myMesh = buildBase(myPos, 0x47ff6a), enMesh = buildBase(enemyPos, 0xff4040);
+  const spawn = myPos.clone().add(new THREE.Vector3(0,7,0));
+  const dir = enemyPos.clone().sub(myPos), yaw = Math.atan2(dir.x, dir.z);
+  pvp.myBase    = { hp:BASE_HP, max:BASE_HP, mesh:myMesh, center:new THREE.Vector3(myPos.x,8,myPos.z),    radius:13, spawn, yaw };
+  pvp.enemyBase = { hp:BASE_HP, max:BASE_HP, mesh:enMesh, center:new THREE.Vector3(enemyPos.x,8,enemyPos.z), radius:13 };
+  // spawn at my own base, facing the enemy
+  state.pos.copy(spawn); state.vel.set(0,0,0); state.quat.identity();
+  state.yaw=yaw; state.pitchV=0; state.rollV=0; state.camPitch=0; state.throttle=0;
+  state.health=maxHP(); state.dead=false; state.respawn=0; state.invuln=2; updateHPbar();
+  // HUD: show hull + base bars + mobile fire button (freestyle normally hides these)
+  document.getElementById('hp').style.display='block';
+  const bf=document.getElementById('b-fire'); if(bf) bf.style.display='flex';   // let phones shoot (hidden by CSS on desktop)
+  document.getElementById('pvp-hud').style.display='flex';
+  document.getElementById('obj-lbl').textContent='TARGET';
+  document.getElementById('rings').textContent='ENEMY BASE';
+  document.getElementById('mode-hint').textContent='◈ '+(WNAME[state.gun]||'BLASTER')+'  ·  [ F ] SHOOT';
+  updateBaseBars(); scaleDome(pvp.myBase); scaleDome(pvp.enemyBase);
+  // publish my base + start watching the shared battle state
+  if(window.SkyNet){
+    window.SkyNet.pvpSetBase(room, pvp.myBase.hp, pvp.myBase.max);
+    pvp.basesUnsub = window.SkyNet.pvpWatchBases(room, onPvpBases);
+    pvp.hitsUnsub  = window.SkyNet.pvpWatchHits(room, onPvpHits);
+  }
+  refreshTouchUI();
+}
+function onPvpBases(bases){
+  if(!pvp.on || !bases) return;
+  for(const id in bases){ if(id!==myId() && !pvp.enemyId) pvp.enemyId=id; }
+  const mine=bases[myId()], en = pvp.enemyId?bases[pvp.enemyId]:null;
+  if(mine && typeof mine.hp==='number'){ pvp.myBase.hp=mine.hp; if(mine.max) pvp.myBase.max=mine.max; scaleDome(pvp.myBase); }
+  if(en   && typeof en.hp==='number'){ pvp.enemyBase.hp=en.hp; if(en.max) pvp.enemyBase.max=en.max; scaleDome(pvp.enemyBase); }
+  updateBaseBars();
+  if(!pvp.ended){
+    if(en && en.hp<=0) pvpEnd(true);            // enemy base gone → I win
+    else if(mine && mine.hp<=0) pvpEnd(false);  // my base gone → I lose
+  }
+}
+function onPvpHits(hits){
+  if(!pvp.on || !hits) return;
+  for(const id in hits){
+    if(pvp.appliedHits.has(id)) continue;
+    pvp.appliedHits.add(id);
+    const h=hits[id]||{};
+    if(h.k==='base') pvpDamageMyBase(h.dmg||0); else pvpDamageSelf(h.dmg||0);
+    if(window.SkyNet) window.SkyNet.pvpClearHit(pvp.room, id);
+  }
+}
+function pvpDamageSelf(d){
+  if(state.dead || state.invuln>0 || pvp.ended) return;
+  state.health -= d;
+  if(state.health<=0){ state.health=0; updateHPbar(); pvpDie(); return; }
+  updateHPbar(); flash.style.opacity=0.3; setTimeout(()=>flash.style.opacity=0, 90);
+}
+function pvpDamageMyBase(d){
+  if(!pvp.on || pvp.ended) return;
+  pvp.myBase.hp=Math.max(0, pvp.myBase.hp-d); scaleDome(pvp.myBase); updateBaseBars();
+  explode(pvp.myBase.center.clone());
+  if(window.SkyNet) window.SkyNet.pvpSetBase(pvp.room, pvp.myBase.hp, pvp.myBase.max);
+  if(pvp.myBase.hp<=0) pvpEnd(false);
+}
+function pvpDie(){
+  state.dead=true; state.respawn=3;                 // wait 3 seconds, per the plan
+  explode(state.pos.clone());
+  const dv=document.getElementById('death');
+  dv.innerHTML='DRONE DESTROYED<br><span style="font-size:24px">RESPAWN IN <span id="respawn-num">3</span>...</span>';
+  dv.style.display='block';
+}
+function pvpRespawn(){
+  state.dead=false; state.health=maxHP(); updateHPbar(); state.invuln=2;
+  state.pos.copy(pvp.myBase.spawn); state.vel.set(0,0,0); state.quat.identity();
+  state.throttle=0; state.yaw=pvp.myBase.yaw||0; state.pitchV=0; state.rollV=0; state.camPitch=0;
+  document.getElementById('death').style.display='none';
+}
+function updatePvp(dt){
+  const enemy = pvp.enemyId ? remotePlayers[pvp.enemyId] : null;
+  for(let i=bullets.length-1;i>=0;i--){ const b=bullets[i];
+    if(b.userData.kind==='homing' && b.userData.pvpTarget){
+      const to=b.userData.pvpTarget.position.clone().sub(b.position);
+      if(to.lengthSq()>0.01){ to.normalize().multiplyScalar(b.userData.vel.length()); b.userData.vel.lerp(to,0.12); orientTracer(b,b.userData.vel); }
+    }
+    b.position.addScaledVector(b.userData.vel, dt); b.userData.life-=dt;
+    let done=false;
+    if(enemy && enemy.group && b.position.distanceTo(enemy.group.position) < 2.8){
+      if(pvp.enemyId && window.SkyNet) window.SkyNet.pvpSendHit(pvp.room, pvp.enemyId, 'drone', bulletDmg(b));
+      explode(b.position.clone()); done=true;
+    }
+    if(!done && pvp.enemyBase && b.position.distanceTo(pvp.enemyBase.center) < pvp.enemyBase.radius){
+      if(pvp.enemyId && window.SkyNet) window.SkyNet.pvpSendHit(pvp.room, pvp.enemyId, 'base', bulletDmg(b));
+      explode(b.position.clone()); done=true;
+    }
+    if(!done && (b.userData.life<=0 || b.position.y<0)) done=true;
+    if(done){ fxGroup.remove(b); bullets.splice(i,1); }
+  }
+  updateFx(dt);
+}
+function pvpTeardownNet(){
+  if(pvp.basesUnsub){ try{pvp.basesUnsub();}catch(e){} pvp.basesUnsub=null; }
+  if(pvp.hitsUnsub){ try{pvp.hitsUnsub();}catch(e){} pvp.hitsUnsub=null; }
+}
+function pvpTeardown(){
+  pvpTeardownNet();
+  pvp.on=false; pvp.ended=false; pvp.enemyId=null; pvp.room=null;
+  pvp.myBase=null; pvp.enemyBase=null; pvp.appliedHits=new Set();
+  clearGroup(pvpGroup);
+  const h=document.getElementById('pvp-hud'); if(h) h.style.display='none';
+}
+function pvpEnd(won){
+  if(pvp.ended) return; pvp.ended=true; pvp.on=false;
+  state.playing=false; state.dead=false;
+  pvpTeardownNet();
+  document.getElementById('pvp-hud').style.display='none';
+  document.getElementById('death').style.display='none';
+  document.getElementById('win-title').textContent = won ? '🏆 VICTORY!' : '💥 DEFEAT';
+  document.getElementById('win-stat-lbl').textContent = 'RESULT';
+  document.getElementById('win-time').textContent = won ? 'ENEMY BASE DESTROYED' : 'YOUR BASE DESTROYED';
+  document.getElementById('win-best').textContent = won ? 'GG! You win the 1v1! 🎉' : 'So close — get them next time!';
+  document.getElementById('osd').style.display='none';
+  document.getElementById('win').style.display='flex';
+  releaseAllTouch(); refreshTouchUI(); leaveRoomAndClear();
+  if(window.SkyNet) window.SkyNet.setStatus('menu');
+}
+
+// ======================================================================
 //  GAME LOOP
 // ======================================================================
 let last = performance.now();
@@ -2249,10 +2482,13 @@ function loop(now){
   const dt = Math.min((now-last)/1000, 0.033); last = now;
   if (state.playing && !state.paused){
     if (state.dead){
-      // destroyed — keep the explosion animating, then it's game over
+      // destroyed — keep the explosion animating, then respawn (1v1) or game over (combat)
       state.respawn -= dt;
       updateFx(dt);
-      if (state.respawn <= 0) endCombat();
+      if (pvp.on){
+        const rn=document.getElementById('respawn-num'); if(rn) rn.textContent=Math.max(0,Math.ceil(state.respawn));
+        if (state.respawn <= 0) pvpRespawn();
+      } else if (state.respawn <= 0) endCombat();
     } else {
       state.time += dt; fly(dt);
       if (mobileFire) shoot();
@@ -2260,6 +2496,7 @@ function loop(now){
         window.SkyNet.updateMe({ x:state.pos.x, y:state.pos.y, z:state.pos.z, ry:state.yaw, t:now }); }
       if (state.mode==='race') checkRings();
       if (state.mode==='combat'){ if (state.invuln>0) state.invuln-=dt; updateWorld(dt); }
+      if (pvp.on){ if (state.invuln>0) state.invuln-=dt; updatePvp(dt); }
       if (state.mode!=='freestyle') document.getElementById('time').textContent = state.time.toFixed(1);
       document.getElementById('speed').textContent = Math.round(state.vel.length()*3.6);
       document.getElementById('alt').textContent = Math.round(state.pos.y);
