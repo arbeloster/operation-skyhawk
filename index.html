@@ -145,6 +145,14 @@
   .fr-join:hover { background:#2a3d1a; }
   .fr-empty { color:#6f7a55; font-size:14px; padding:6px; }
   #friend-msg { min-height:20px; font-size:15px; letter-spacing:1px; margin-top:4px; }
+  .fr-inv { background:#0e2130; border:2px solid #35c8ff; color:#8fe3ff; font-family:inherit; font-size:12px;
+    letter-spacing:1px; padding:5px 9px; cursor:pointer; box-shadow:0 0 8px rgba(53,200,255,.3); }
+  .fr-inv:hover { background:#123048; }
+  #party, #invite { position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:14; background:rgba(0,0,0,.78); }
+  #party .card, #invite .card { background:#0d1622; border:2px solid #35c8ff; padding:26px 34px; text-align:center; box-shadow:0 0 32px rgba(53,200,255,.45); max-width:380px; }
+  #party h2, #invite h2 { color:#cfeaff; letter-spacing:3px; margin-bottom:8px; font-size:24px; }
+  #party-list { display:flex; flex-direction:column; gap:6px; margin:10px auto 12px; max-width:320px; }
+  #party-note { color:#9fb0c8; font-size:13px; letter-spacing:1px; margin:4px 0 10px; min-height:18px; }
 
   #pause { position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:13; background:rgba(0,0,0,.72); }
   #pause .card { background:#12180e; border:2px solid #7dff7d; padding:30px 42px; text-align:center;
@@ -279,6 +287,28 @@
     <p class="sub" style="font-size:11px;color:#6f7a55;margin:2px 0 6px">Ask a friend for their ID and type it above! 🌍</p>
     <div id="friend-list"></div>
     <button class="btn" id="friends-close" style="margin-top:12px">◀ CLOSE</button>
+  </div>
+</div>
+
+<div id="party">
+  <div class="card">
+    <div class="classified">// SQUAD FORMING //</div>
+    <h2>🎉 PARTY</h2>
+    <div id="party-list"></div>
+    <p id="party-note"></p>
+    <button class="btn" id="party-start" style="display:none">🚀 START TOGETHER</button>
+    <button class="btn" id="party-more" style="display:none;margin-top:8px">➕ INVITE MORE</button>
+    <button class="btn gold" id="party-leave" style="margin-top:8px">◀ LEAVE PARTY</button>
+  </div>
+</div>
+
+<div id="invite">
+  <div class="card">
+    <div class="classified">// INCOMING TRANSMISSION //</div>
+    <h2>🎉 PARTY INVITE!</h2>
+    <p class="sub" id="invite-txt">A friend invited you!</p>
+    <button class="btn" id="invite-yes" style="margin-top:6px">✔ JOIN PARTY</button>
+    <button class="btn gold" id="invite-no" style="margin-top:8px">✖ NO THANKS</button>
   </div>
 </div>
 
@@ -452,6 +482,37 @@
     if(meRef){ try { onDisconnect(meRef).cancel(); } catch(e){} try { dbRemove(meRef); } catch(e){} meRef=null; }
     if(playersUnsub){ try { playersUnsub(); } catch(e){} playersUnsub=null; }
   };
+
+  // ---- Party invites (written onto the invited pilot's Firestore doc) ----
+  window.SkyNet.sendInvite = async function(friendId){
+    friendId = cleanId(friendId); if(!friendId || !S.myId) return false;
+    try { await setDoc(P(friendId), { invite:{ from:S.myId, fromName:(S.name||S.myId), t:Date.now() } }, {merge:true}); return true; }
+    catch(e){ return false; }
+  };
+  window.SkyNet.clearInvite = async function(){ if(!S.myId) return;
+    try { await setDoc(P(S.myId), { invite:null }, {merge:true}); } catch(e){} };
+
+  // ---- Party lobby: a shared node in the Realtime DB, keyed by the host's ID ----
+  //   (lives under rooms/* so the already-published database rules allow read/write)
+  let partyMeRef=null, partyUnsub=null, partyHostId=null;
+  window.SkyNet.joinParty = async function(hostId, onParty){
+    this.leaveParty();
+    hostId = cleanId(hostId); if(!S.myId || !hostId) return;
+    partyHostId = hostId;
+    partyMeRef = dbRef(rtdb, `rooms/party-${hostId}/members/${S.myId}`);
+    try { onDisconnect(partyMeRef).remove(); } catch(e){}                 // auto-leave if I disconnect
+    try { await dbSet(partyMeRef, { id:S.myId, name:(S.name||S.myId), t:Date.now() }); } catch(e){}
+    partyUnsub = onValue(dbRef(rtdb, `rooms/party-${hostId}`), snap=> onParty(snap.val()||null), ()=>onParty(null));
+  };
+  window.SkyNet.startParty = async function(mode, map){ if(!partyHostId) return false;
+    try { await dbSet(dbRef(rtdb, `rooms/party-${partyHostId}/start`), { mode:mode||'freestyle', map:map||'flat', t:Date.now() }); return true; }
+    catch(e){ return false; } };
+  window.SkyNet.leaveParty = function(){
+    if(partyMeRef){ try { onDisconnect(partyMeRef).cancel(); } catch(e){} try { dbRemove(partyMeRef); } catch(e){} partyMeRef=null; }
+    if(partyUnsub){ try { partyUnsub(); } catch(e){} partyUnsub=null; }
+    partyHostId=null;
+  };
+  window.SkyNet.getPartyHost = function(){ return partyHostId; };
 
   // remember who we are across visits, and keep a heartbeat so friends see us online
   S.myId = cleanId(localStorage.getItem('skyhawk-id')||'') || null;
@@ -1882,6 +1943,10 @@ function watchSelf(){
     if(d.banned) enforceBan(); else clearBan();
     // only a kick issued AFTER I loaded the page boots me — so rejoining (fresh load) always lets me back in
     if(d.kick && d.kick > SESSION_START && !iamKicked) getKicked();
+    // a friend invited me to a party (ignore old invites + don't interrupt a game)
+    if(d.invite && d.invite.t && d.invite.t>SESSION_START && d.invite.t!==lastInviteSeen && !inParty && !state.playing){
+      lastInviteSeen=d.invite.t; showInvitePrompt(d.invite);
+    }
   });
 }
 
@@ -1893,6 +1958,7 @@ function friendMsg(t,c){ const m=document.getElementById('friend-msg'); m.textCo
 function cssId(id){ return (id||'').replace(/[^A-Z0-9_-]/g,''); }
 
 let friendWatchers=[], friendData={}, friendRefresh=null;
+let inParty=false, partyStarted=false, partyJoinT=0, lastInviteSeen=0, pendingHost=null;
 function stopFriendWatchers(){ friendWatchers.forEach(u=>{ try{ u&&u(); }catch(e){} }); friendWatchers=[];
   if(friendRefresh){ clearInterval(friendRefresh); friendRefresh=null; } }
 function isOnline(d){ return !!(d && d.lastSeen && d.lastSeen.toMillis && (Date.now()-d.lastSeen.toMillis() < 45000)); }
@@ -1906,7 +1972,9 @@ function renderOneFriend(id){
   const row=document.getElementById('fr-'+cssId(id)); if(!row) return;
   const d=friendData[id], nm=(d && d.name) ? d.name : id;
   row.querySelector('.fr-info').innerHTML = `👤 ${nm} <span style="color:#6f7a55">#${id}</span> ${statusHTML(d)}`;
-  row.querySelector('.fr-join').style.display = (isOnline(d) && d.status==='playing') ? 'inline-block' : 'none';
+  const inv=row.querySelector('.fr-inv'), join=row.querySelector('.fr-play');
+  if(inv) inv.style.display = (isOnline(d) && d.status!=='playing') ? 'inline-block' : 'none';   // online & free → invite
+  if(join) join.style.display = (isOnline(d) && d.status==='playing') ? 'inline-block' : 'none'; // already flying → join
 }
 function renderFriends(){
   stopFriendWatchers(); friendData={};
@@ -1918,11 +1986,13 @@ function renderFriends(){
     const row=document.createElement('div'); row.className='fr-row'; row.id='fr-'+cssId(id);
     row.innerHTML = `<span class="fr-info">👤 ${id} <span style="color:#6f7a55">· …</span></span>`;
     const right=document.createElement('span'); right.style.cssText='display:flex;gap:8px;align-items:center';
-    const join=document.createElement('button'); join.className='fr-join'; join.textContent='JOIN ▶'; join.style.display='none';
+    const inv=document.createElement('button'); inv.className='fr-inv'; inv.textContent='➕ INVITE'; inv.style.display='none';
+    inv.onclick=()=>invitePartyFriend(id);
+    const join=document.createElement('button'); join.className='fr-join fr-play'; join.textContent='JOIN ▶'; join.style.display='none';
     join.onclick=()=>joinFriend(id);
     const x=document.createElement('button'); x.className='fr-x'; x.textContent='✖';
     x.onclick=()=>{ setFriends(getFriends().filter(f=>f!==id)); renderFriends(); };
-    right.appendChild(join); right.appendChild(x); row.appendChild(right); list.appendChild(row);
+    right.appendChild(inv); right.appendChild(join); right.appendChild(x); row.appendChild(right); list.appendChild(row);
     if(window.SkyNet) friendWatchers.push(window.SkyNet.watch(id, d=>{ friendData[id]=d; renderOneFriend(id); }));
   });
   // re-check every few seconds so a friend flips to "offline" when their heartbeat stops
@@ -1960,6 +2030,99 @@ document.getElementById('friends-btn').onclick=()=>{ document.getElementById('fr
 document.getElementById('friend-add').onclick=addFriend;
 document.getElementById('friends-close').onclick=()=>{ document.getElementById('friends').style.display='none'; stopFriendWatchers(); };
 document.getElementById('friend-input').addEventListener('keydown', e=>{ e.stopPropagation(); if (e.code==='Enter') addFriend(); });
+
+// ---- Party & invites: invite a free friend, then all deploy together -----
+function showInvitePrompt(inv){
+  pendingHost = inv.from;
+  document.getElementById('invite-txt').innerHTML = '<b>'+(inv.fromName||inv.from)+'</b> invited you to a party!';
+  document.getElementById('invite').style.display='flex';
+}
+async function invitePartyFriend(id){
+  if(!myId()){ friendMsg('Sign in first to make a party!', '#ffd23f'); return; }
+  if(!window.SkyNet || !window.SkyNet.joinParty){ friendMsg('⏳ Connecting… try again in a sec', '#ffd23f'); return; }
+  const d=friendData[id];
+  if(!isOnline(d) || d.status==='playing'){ friendMsg('That friend is busy right now.', '#ffd23f'); return; }
+  friendMsg('📨 Inviting '+((d&&d.name)||id)+'…', '#35c8ff');
+  if(!(inParty && window.SkyNet.getPartyHost()===myId())){   // start my own party if I'm not already hosting one
+    partyJoinT=Date.now();
+    await window.SkyNet.joinParty(myId(), onPartyUpdate);
+  }
+  await window.SkyNet.sendInvite(id);
+  document.getElementById('friends').style.display='none'; stopFriendWatchers();
+  openParty();
+}
+function openParty(){
+  inParty=true; partyStarted=false;
+  const host = window.SkyNet ? window.SkyNet.getPartyHost() : null;
+  const iAmHost = !!host && host===myId();
+  document.getElementById('party-start').style.display = iAmHost ? 'block' : 'none';
+  document.getElementById('party-more').style.display  = iAmHost ? 'block' : 'none';
+  document.getElementById('party-note').textContent = iAmHost
+    ? 'When your friend shows up below, press START TOGETHER!'
+    : 'Waiting for the host to start the game…';
+  renderPartyMembers(null);
+  document.getElementById('party').style.display='flex';
+}
+function renderPartyMembers(members){
+  const list=document.getElementById('party-list'); if(!list) return;
+  const ids = members ? Object.keys(members) : [];
+  const host = window.SkyNet ? window.SkyNet.getPartyHost() : null;
+  if(!ids.length){ list.innerHTML='<div class="fr-empty">Setting up the party…</div>'; return; }
+  list.innerHTML = ids.map(id=>{
+    const m=members[id]||{}, nm=m.name||id;
+    const crown = id===host ? ' <span style="color:#ffd23f">👑 HOST</span>' : '';
+    const you   = id===myId() ? ' <span style="color:#35c8ff">(you)</span>' : '';
+    return `<div class="fr-row"><span class="fr-info">🎮 ${nm} <span style="color:#6f7a55">#${id}</span>${crown}${you}</span></div>`;
+  }).join('');
+}
+function onPartyUpdate(party){
+  if(!inParty) return;
+  // START signal always wins — everyone deploys into the host's world together
+  if(party && party.start && party.start.t && party.start.t>partyJoinT && !partyStarted){ launchParty(party.start); return; }
+  if(!party || !party.members){ renderPartyMembers(null); return; }
+  const host = window.SkyNet ? window.SkyNet.getPartyHost() : null, iAmHost = !!host && host===myId();
+  if(!iAmHost && host && !party.members[host] && Date.now()-partyJoinT>1500){   // host bailed — party's over
+    if(window.SkyNet) window.SkyNet.leaveParty(); inParty=false;
+    document.getElementById('party').style.display='none';
+    document.getElementById('start').style.display='flex';
+    return;
+  }
+  renderPartyMembers(party.members);
+}
+function launchParty(start){
+  if(partyStarted) return; partyStarted=true;
+  const host = (window.SkyNet && window.SkyNet.getPartyHost()) || myId();
+  if(window.SkyNet) window.SkyNet.leaveParty();
+  inParty=false;
+  document.getElementById('party').style.display='none';
+  state.mode = start.mode||'freestyle'; state.map = start.map||'flat';
+  document.querySelectorAll('#mode-pick .modebtn').forEach(x=>x.classList.toggle('on', x.dataset.mode===state.mode));
+  document.querySelectorAll('#map-pick .mapbtn').forEach(x=>x.classList.toggle('on', x.dataset.map===state.map));
+  updateModeDesc();
+  pendingRoom = host;    // everyone flies together in the host's room
+  startGame();
+}
+function leavePartyUI(){
+  if(window.SkyNet) window.SkyNet.leaveParty();
+  inParty=false; partyStarted=false;
+  document.getElementById('party').style.display='none';
+  document.getElementById('start').style.display='flex';
+}
+document.getElementById('party-start').onclick=()=>{ if(window.SkyNet) window.SkyNet.startParty(state.mode, state.map); };
+document.getElementById('party-leave').onclick=leavePartyUI;
+document.getElementById('party-more').onclick=()=>{
+  document.getElementById('party').style.display='none';
+  document.getElementById('friends').style.display='flex'; friendMsg('',''); renderFriends();
+};
+document.getElementById('invite-yes').onclick=async ()=>{
+  document.getElementById('invite').style.display='none';
+  if(window.SkyNet) window.SkyNet.clearInvite();
+  if(!pendingHost || !window.SkyNet) return;
+  partyJoinT=Date.now();
+  await window.SkyNet.joinParty(pendingHost, onPartyUpdate);
+  openParty();
+};
+document.getElementById('invite-no').onclick=()=>{ document.getElementById('invite').style.display='none'; if(window.SkyNet) window.SkyNet.clearInvite(); };
 addEventListener('keydown', e=>{ if (e.code==='KeyR' && state.playing) startGame(); if (e.code==='KeyV') viewMode=1-viewMode;
   if (e.code==='Escape' && state.playing){ state.paused ? resumeGame() : pauseGame(); } });
 
