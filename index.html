@@ -1309,10 +1309,14 @@ function saveUpg(){ localStorage.setItem('skyhawk-upg', JSON.stringify(state.upg
 // ---- Buyable drones (each with its own look + stat bonuses) ----------
 const DRONES = [
   { id:'hornet',  name:'Hornet',  price:0,    accent:0x35c8ff, frame:0x1a1c18, batt:0x243a5a, speed:0,  thrust:0,  hp:0,   boost:0,  desc:'The classic starter quad — a reliable all-rounder.' },
-  { id:'falcon',  name:'Falcon',  price:600,  accent:0x47ff6a, frame:0x14201a, batt:0x1e3a24, speed:20, thrust:4,  hp:0,   boost:10, desc:'Lightweight & nimble — faster with a stronger boost.' },
-  { id:'vulture', name:'Vulture', price:1200, accent:0xffd23f, frame:0x241c10, batt:0x3a2a10, speed:15, thrust:8,  hp:60,  boost:5,  desc:'Beefy motors and a tough hull — great for Combat.' },
-  { id:'phantom', name:'Phantom', price:2200, accent:0xb06bff, frame:0x1a1424, batt:0x2a1a3a, speed:45, thrust:8,  hp:20,  boost:25, desc:'Pro racer — huge top speed and boost.' },
-  { id:'titan',   name:'Titan',   price:3500, accent:0xff5a3a, frame:0x241010, batt:0x3a1010, speed:30, thrust:14, hp:140, boost:20, desc:'Armored powerhouse — monster power and health.' },
+  { id:'falcon',  name:'Falcon',  price:600,  accent:0x47ff6a, frame:0x14201a, batt:0x1e3a24, speed:20, thrust:4,  hp:0,   boost:10, desc:'Lightweight & nimble — faster with a stronger boost.',
+    shape:{ scale:0.85, bodyW:0.8, bodyL:1.15, topW:0.62, topL:0.85, battW:0.42, battH:0.22, battL:0.66, armThick:0.1, armLen:0.78, armSpan:1.0, motorR:0.16, motorTop:0.14, bellR:0.13, propR:0.2, blades:2 } },
+  { id:'vulture', name:'Vulture', price:1200, accent:0xffd23f, frame:0x241c10, batt:0x3a2a10, speed:15, thrust:8,  hp:60,  boost:5,  desc:'Beefy motors and a tough hull — great for Combat.',
+    shape:{ scale:1.12, bodyW:1.2, bodyL:1.4, topW:0.95, topL:1.05, battW:0.72, battH:0.32, battL:1.0, armThick:0.2, armLen:0.86, armSpan:1.2, motorR:0.26, motorTop:0.23, bellR:0.2, propR:0.25, blades:3 } },
+  { id:'phantom', name:'Phantom', price:2200, accent:0xb06bff, frame:0x1a1424, batt:0x2a1a3a, speed:45, thrust:8,  hp:20,  boost:25, desc:'Pro racer — long, sleek, huge speed and boost.',
+    shape:{ scale:1.0, bodyW:0.7, bodyL:1.65, topW:0.58, topL:1.2, battW:0.5, battH:0.22, battL:1.15, armThick:0.11, armLen:0.9, armSpan:1.3, motorR:0.16, motorTop:0.15, bellR:0.14, propR:0.23, blades:2 } },
+  { id:'titan',   name:'Titan',   price:3500, accent:0xff5a3a, frame:0x241010, batt:0x3a1010, speed:30, thrust:14, hp:140, boost:20, desc:'Armored powerhouse — monster power and health.',
+    shape:{ scale:1.35, bodyW:1.35, bodyL:1.55, topW:1.05, topL:1.15, battW:0.82, battH:0.36, battL:1.15, armThick:0.26, armLen:0.92, armSpan:1.35, motorR:0.3, motorTop:0.27, bellR:0.26, propR:0.3, blades:3, plates:true } },
 ];
 state.drones = new Set(JSON.parse(localStorage.getItem('skyhawk-drones')||'["hornet"]')); state.drones.add('hornet');
 state.drone = localStorage.getItem('skyhawk-drone') || 'hornet';
@@ -1443,38 +1447,46 @@ function buildDrone(opt){
   const plastic   = new THREE.MeshStandardMaterial({color:0x141414, metalness:.2,  roughness:.6});
   const ledMat    = new THREE.MeshStandardMaterial({color:accent, emissive:accent, emissiveIntensity:2.2});
   const bladeMat  = new THREE.MeshStandardMaterial({color:0x0b0b0b, metalness:.2, roughness:.6, transparent:true, opacity:.5, side:THREE.DoubleSide});
+  // shape params let each drone look distinct (defaults = the Hornet)
+  const sh = Object.assign({ scale:1, bodyW:1.0, bodyL:1.35, topW:0.8, topL:1.0, battW:0.6, battH:0.26, battL:0.92,
+    armLen:0.82, armThick:0.14, armSpan:1.12, motorR:0.2, motorTop:0.17, bellR:0.16, propR:0.22, blades:3, antenna:true, plates:false }, opt.shape||{});
   const g = new THREE.Group(); const props = [];
   // stacked carbon frame plates + standoffs
-  const bottom=new THREE.Mesh(new THREE.BoxGeometry(1.0,0.06,1.35), frameMat); bottom.castShadow=true; g.add(bottom);
-  const topPlate=new THREE.Mesh(new THREE.BoxGeometry(0.8,0.05,1.0), frameMat); topPlate.position.y=0.34; g.add(topPlate);
-  [[0.34,0.45],[0.34,-0.45],[-0.34,0.45],[-0.34,-0.45]].forEach(([sx,sz])=>{
+  const bottom=new THREE.Mesh(new THREE.BoxGeometry(sh.bodyW,0.06,sh.bodyL), frameMat); bottom.castShadow=true; g.add(bottom);
+  const topPlate=new THREE.Mesh(new THREE.BoxGeometry(sh.topW,0.05,sh.topL), frameMat); topPlate.position.y=0.34; g.add(topPlate);
+  [[sh.topW*0.42,sh.topL*0.45],[sh.topW*0.42,-sh.topL*0.45],[-sh.topW*0.42,sh.topL*0.45],[-sh.topW*0.42,-sh.topL*0.45]].forEach(([sx,sz])=>{
     const post=new THREE.Mesh(new THREE.CylinderGeometry(0.035,0.035,0.34,6), darkMetal); post.position.set(sx,0.17,sz); g.add(post); });
   // battery + strap on top
-  const batt=new THREE.Mesh(new THREE.BoxGeometry(0.6,0.26,0.92), new THREE.MeshStandardMaterial({color:battCol, metalness:.35, roughness:.5})); batt.position.y=0.5; batt.castShadow=true; g.add(batt);
-  const strap=new THREE.Mesh(new THREE.BoxGeometry(0.64,0.04,0.22), plastic); strap.position.y=0.5; g.add(strap);
-  // 4 arms + motors + spinning 3-blade props + nav LEDs (green front, red back)
+  const battY=0.365+sh.battH/2;
+  const batt=new THREE.Mesh(new THREE.BoxGeometry(sh.battW,sh.battH,sh.battL), new THREE.MeshStandardMaterial({color:battCol, metalness:.35, roughness:.5})); batt.position.y=battY; batt.castShadow=true; g.add(batt);
+  const strap=new THREE.Mesh(new THREE.BoxGeometry(sh.battW+0.04,0.04,0.22), plastic); strap.position.y=battY; g.add(strap);
+  // optional armor side plates (Titan)
+  if(sh.plates){ [-1,1].forEach(sx=>{ const pl=new THREE.Mesh(new THREE.BoxGeometry(0.12,0.3,sh.bodyL*0.8), frameMat); pl.position.set(sx*(sh.bodyW*0.5+0.02),0.15,0); pl.castShadow=true; g.add(pl); }); }
+  // 4 arms + motors + spinning props + nav LEDs (green front, red back)
   [[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([sx,sz])=>{
-    const mx=sx*0.82, mz=sz*0.82;
-    const arm=new THREE.Mesh(new THREE.BoxGeometry(0.14,0.06,1.12), frameMat);
-    arm.position.set(sx*0.42,0.02,sz*0.42); arm.rotation.y=Math.atan2(sx,sz); arm.castShadow=true; g.add(arm);
-    const motor=new THREE.Mesh(new THREE.CylinderGeometry(0.17,0.2,0.18,14), darkMetal); motor.position.set(mx,0.12,mz); motor.castShadow=true; g.add(motor);
-    const bell=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.16,0.05,14), ledMat); bell.position.set(mx,0.22,mz); g.add(bell);
+    const mx=sx*sh.armLen, mz=sz*sh.armLen;
+    const arm=new THREE.Mesh(new THREE.BoxGeometry(sh.armThick,0.06,sh.armSpan), frameMat);
+    arm.position.set(sx*sh.armLen*0.5,0.02,sz*sh.armLen*0.5); arm.rotation.y=Math.atan2(sx,sz); arm.castShadow=true; g.add(arm);
+    const motor=new THREE.Mesh(new THREE.CylinderGeometry(sh.motorTop,sh.motorR,0.18,14), darkMetal); motor.position.set(mx,0.12,mz); motor.castShadow=true; g.add(motor);
+    const bell=new THREE.Mesh(new THREE.CylinderGeometry(sh.bellR,sh.bellR,0.05,14), ledMat); bell.position.set(mx,0.22,mz); g.add(bell);
     const prop=new THREE.Group(); prop.position.set(mx,0.27,mz);
-    for(let b=0;b<3;b++){ const holder=new THREE.Group(); holder.rotation.y=b*2.094;
-      const blade=new THREE.Mesh(new THREE.BoxGeometry(0.44,0.015,0.13), bladeMat); blade.position.x=0.22; holder.add(blade); prop.add(holder); }
+    for(let b=0;b<sh.blades;b++){ const holder=new THREE.Group(); holder.rotation.y=b*(6.283/sh.blades);
+      const blade=new THREE.Mesh(new THREE.BoxGeometry(sh.propR*2,0.015,0.13), bladeMat); blade.position.x=sh.propR; holder.add(blade); prop.add(holder); }
     g.add(prop); props.push(prop);
     const led=new THREE.Mesh(new THREE.SphereGeometry(0.06,8,6), new THREE.MeshStandardMaterial({color: sz<0?0xff3030:0x40ff40, emissive: sz<0?0xff0000:0x00ff00, emissiveIntensity:2.2})); led.position.set(mx,0.0,mz); g.add(led);
   });
   // tilted FPV camera at the front
-  const camMount=new THREE.Mesh(new THREE.BoxGeometry(0.32,0.32,0.2), plastic); camMount.position.set(0,0.4,-0.5); camMount.rotation.x=-0.5; g.add(camMount);
-  const lens=new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.1,0.12,12), darkMetal); lens.rotation.x=1.1; lens.position.set(0,0.47,-0.62); g.add(lens);
-  const glass=new THREE.Mesh(new THREE.CircleGeometry(0.08,12), new THREE.MeshStandardMaterial({color:0x0a2a44, emissive:accent, emissiveIntensity:0.7, metalness:.9, roughness:.1})); glass.position.set(0,0.5,-0.68); glass.rotation.x=1.1; g.add(glass);
+  const camZ=-sh.bodyL*0.37;
+  const camMount=new THREE.Mesh(new THREE.BoxGeometry(0.32,0.32,0.2), plastic); camMount.position.set(0,0.4,camZ); camMount.rotation.x=-0.5; g.add(camMount);
+  const lens=new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.1,0.12,12), darkMetal); lens.rotation.x=1.1; lens.position.set(0,0.47,camZ-0.12); g.add(lens);
+  const glass=new THREE.Mesh(new THREE.CircleGeometry(0.08,12), new THREE.MeshStandardMaterial({color:0x0a2a44, emissive:accent, emissiveIntensity:0.7, metalness:.9, roughness:.1})); glass.position.set(0,0.5,camZ-0.18); glass.rotation.x=1.1; g.add(glass);
   // rear LED bar + two antennas
-  const bar=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.04,0.05), ledMat); bar.position.set(0,0.08,0.66); g.add(bar);
-  [[0.26,0.6],[-0.26,0.6]].forEach(([ax,az])=>{
+  const bar=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.04,0.05), ledMat); bar.position.set(0,0.08,sh.bodyL*0.49); g.add(bar);
+  if(sh.antenna){ [[0.26,sh.bodyL*0.44],[-0.26,sh.bodyL*0.44]].forEach(([ax,az])=>{
     const ant=new THREE.Mesh(new THREE.CylinderGeometry(0.014,0.014,0.5,5), plastic); ant.position.set(ax,0.3,az); ant.rotation.x=0.45; g.add(ant);
     const tip=new THREE.Mesh(new THREE.SphereGeometry(0.04,8,6), ledMat); tip.position.set(ax,0.52,az+0.1); g.add(tip);
-  });
+  }); }
+  g.scale.setScalar(sh.scale);
   return { group:g, props };
 }
 let drone, props;
@@ -1482,7 +1494,7 @@ function rebuildPlayerDrone(){
   const wasVisible = drone ? drone.visible : false;
   if(drone) scene.remove(drone);
   const cd = curDrone();
-  const built = buildDrone({ accent:cd.accent, frame:cd.frame, batt:cd.batt });
+  const built = buildDrone({ accent:cd.accent, frame:cd.frame, batt:cd.batt, shape:cd.shape });
   drone = built.group; props = built.props;
   drone.visible = wasVisible; scene.add(drone);
 }
