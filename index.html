@@ -1369,6 +1369,10 @@ const DRONES = [
   { id:'titan',   name:'Titan',   price:3500, accent:0xff5a3a, frame:0x241010, batt:0x3a1010, speed:30, thrust:14, hp:140, boost:20, desc:'Armored powerhouse — monster power and health.',
     shape:{ scale:1.35, bodyW:1.35, bodyL:1.55, topW:1.05, topL:1.15, battW:0.82, battH:0.36, battL:1.15, armThick:0.26, armLen:0.92, armSpan:1.35, motorR:0.3, motorTop:0.27, bellR:0.26, propR:0.3, blades:3, plates:true } },
 ];
+// Price bump: +5000 on everything you can buy (free starters stay free)
+WEAPONS.forEach(w=>{ if(w.price>0) w.price+=5000; });
+UPGRADES.forEach(u=>{ u.prices=u.prices.map(p=>p+5000); });
+DRONES.forEach(d=>{ if(d.price>0) d.price+=5000; });
 state.drones = new Set(JSON.parse(localStorage.getItem('skyhawk-drones')||'["hornet"]')); state.drones.add('hornet');
 state.drone = localStorage.getItem('skyhawk-drone') || 'hornet';
 if(!state.drones.has(state.drone)) state.drone='hornet';
