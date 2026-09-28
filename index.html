@@ -1697,8 +1697,14 @@ function clearBan(){ if(iamBanned){ iamBanned=false; document.getElementById('ba
 // Kicked: booted out and blocked until they leave & rejoin (a fresh page load clears it)
 function getKicked(){ iamKicked=true; state.paused=false; if(state.playing) exitToMenu(); document.getElementById('kick-overlay').style.display='flex'; }
 document.getElementById('kick-rejoin').onclick=()=>{ location.reload(); };
-function applyCoinGrant(d){ const id=myId(); if(!id) return; const total=d.coinGrant||0, key='skyhawk-coins-claimed-'+id, claimed=parseInt(localStorage.getItem(key)||'0',10);
-  if(total!==claimed){ addCoins(total-claimed); localStorage.setItem(key, String(total)); } }   // +gift or -removal
+// Coin gifts/removals: the player CONSUMES the pending amount (adds it, clamped at 0) then clears it back to 0.
+let claimingCoins=false;
+function applyCoinGrant(d){
+  const total=d.coinGrant||0; const id=myId();
+  if(total===0 || claimingCoins || !id) return;
+  claimingCoins=true; addCoins(total);   // +gift or -removal (coins never go below 0)
+  Promise.resolve(window.SkyNet && window.SkyNet.setCoinGrant ? window.SkyNet.setCoinGrant(id,0) : null).finally(()=>{ claimingCoins=false; });
+}
 function watchSelf(){
   if(selfUnsub){ try{selfUnsub();}catch(e){} selfUnsub=null; }
   const id=myId(); if(!id || !window.SkyNet || !window.SkyNet.watch) return;
