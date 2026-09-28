@@ -130,9 +130,12 @@
   .adm-btn.warn { border-color:#ffd23f; background:#2a2410; color:#ffd23f; }
   #admin-info { color:#d8e4bc; font-size:15px; letter-spacing:1px; margin:8px 0; min-height:20px; }
   #admin-msg { min-height:20px; font-size:14px; letter-spacing:1px; margin-top:6px; }
-  #ban-overlay { position:fixed; inset:0; display:none; z-index:30; background:rgba(20,0,0,.93); color:#ff8a8a;
+  #ban-overlay, #kick-overlay { position:fixed; inset:0; display:none; z-index:30;
     font-family:inherit; text-align:center; flex-direction:column; align-items:center; justify-content:center; letter-spacing:3px; padding:20px; }
+  #ban-overlay { background:rgba(20,0,0,.93); color:#ff8a8a; }
   #ban-overlay h1 { color:#ff4444; font-size:48px; text-shadow:0 0 16px #900; margin-bottom:10px; }
+  #kick-overlay { background:rgba(30,22,0,.93); color:#ffe08a; z-index:29; }
+  #kick-overlay h1 { color:#ffd23f; font-size:48px; text-shadow:0 0 16px #a70; margin-bottom:10px; }
   #friend-list { display:flex; flex-direction:column; gap:6px; margin:8px auto 0; max-width:320px; }
   .fr-row { display:flex; align-items:center; justify-content:space-between; background:rgba(10,14,6,.6);
     border:1px solid #3d4a2a; padding:7px 12px; font-size:15px; color:#c8d6b0; letter-spacing:1px; }
@@ -324,6 +327,12 @@
 <div id="ban-overlay">
   <h1>🚫 BANNED</h1>
   <div style="font-size:18px">You have been banned from Operation Skyhawk.</div>
+</div>
+
+<div id="kick-overlay">
+  <h1>👢 KICKED</h1>
+  <div style="font-size:18px;margin-bottom:16px">You were kicked from the game.<br>Leave and come back — or tap Rejoin — to play again!</div>
+  <button class="btn gold" id="kick-rejoin">▶ REJOIN</button>
 </div>
 
 <div id="shop" class="screen">
@@ -1504,6 +1513,7 @@ function setupHUD(){
 }
 function startGame(){
   if (typeof iamBanned!=='undefined' && iamBanned){ document.getElementById('ban-overlay').style.display='flex'; return; }
+  if (typeof iamKicked!=='undefined' && iamKicked){ document.getElementById('kick-overlay').style.display='flex'; return; }
   // build the chosen map + mode
   waterReflectors.forEach(r=>{ try{ r.dispose && r.dispose(); }catch(e){} }); waterReflectors=[];
   grassMeshes.forEach(g=>{ try{ g.dispose && g.dispose(); }catch(e){} }); grassMeshes=[]; snowParticles=null;
@@ -1674,21 +1684,24 @@ document.getElementById('admin-kick').onclick=async ()=>{ if(!adminTarget||!wind
 document.getElementById('admin-give').onclick=async ()=>{ if(!adminTarget||!window.SkyNet) return; const amt=Math.floor(+document.getElementById('admin-coins').value||0); if(amt<=0){ adminMsg('Enter a coin amount','#ffd23f'); return; } adminMsg('Sending…','#35c8ff'); const ok=await window.SkyNet.giveCoins(adminTarget,amt); adminMsg(ok?('🪙 Gave '+amt+' coins to '+adminTarget):'Failed', ok?'#47ff6a':'#ff6a6a'); if(ok) document.getElementById('admin-coins').value=''; };
 
 // ---- Watch my own account for bans / kicks / coin gifts (live) ------
-let selfUnsub=null, selfInit=false, lastKick=0, iamBanned=false;
+let selfUnsub=null, iamBanned=false, iamKicked=false;
+const SESSION_START = Date.now();   // kicks older than this were before I joined — ignore them
 function enforceBan(){ iamBanned=true; if(state.playing){ state.paused=false; exitToMenu(); } document.getElementById('ban-overlay').style.display='flex'; }
 function clearBan(){ if(iamBanned){ iamBanned=false; document.getElementById('ban-overlay').style.display='none'; } }
-function getKicked(){ state.paused=false; exitToMenu(); const c=document.getElementById('cheer'); c.textContent='👢 KICKED — you can rejoin'; c.style.opacity=1; setTimeout(()=>c.style.opacity=0,1800); }
+// Kicked: booted out and blocked until they leave & rejoin (a fresh page load clears it)
+function getKicked(){ iamKicked=true; state.paused=false; if(state.playing) exitToMenu(); document.getElementById('kick-overlay').style.display='flex'; }
+document.getElementById('kick-rejoin').onclick=()=>{ location.reload(); };
 function applyCoinGrant(d){ const id=myId(); if(!id) return; const total=d.coinGrant||0, key='skyhawk-coins-claimed-'+id, claimed=parseInt(localStorage.getItem(key)||'0',10);
   if(total>claimed){ addCoins(total-claimed); localStorage.setItem(key, total); } }
 function watchSelf(){
-  if(selfUnsub){ try{selfUnsub();}catch(e){} selfUnsub=null; } selfInit=false; lastKick=0;
+  if(selfUnsub){ try{selfUnsub();}catch(e){} selfUnsub=null; }
   const id=myId(); if(!id || !window.SkyNet || !window.SkyNet.watch) return;
   selfUnsub = window.SkyNet.watch(id, d=>{
     if(!d) return;
     applyCoinGrant(d);
     if(d.banned) enforceBan(); else clearBan();
-    if(!selfInit){ lastKick=d.kick||0; selfInit=true; return; }
-    if(d.kick && d.kick>lastKick){ lastKick=d.kick; if(state.playing) getKicked(); }
+    // only a kick issued AFTER I loaded the page boots me — so rejoining (fresh load) always lets me back in
+    if(d.kick && d.kick > SESSION_START && !iamKicked) getKicked();
   });
 }
 
