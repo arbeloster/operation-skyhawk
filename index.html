@@ -323,6 +323,7 @@
       <div style="margin-top:10px">
         <button class="adm-btn danger" id="admin-resetcoins">🪙 RESET COINS</button>
         <button class="adm-btn danger" id="admin-resetguns">🔫 RESET GUNS</button>
+        <button class="adm-btn danger" id="admin-resetdrones">🚁 RESET DRONES</button>
       </div>
     </div>
     <div id="admin-msg"></div>
@@ -426,7 +427,9 @@
     async resetCoins(id){ id=cleanId(id); if(!id) return false;
       try { await setDoc(P(id), { coinReset: Date.now(), coinGrant: 0 }, {merge:true}); return true; } catch(e){ return false; } },
     async resetGuns(id){ id=cleanId(id); if(!id) return false;
-      try { await setDoc(P(id), { gunReset: Date.now(), grant: [] }, {merge:true}); return true; } catch(e){ return false; } }
+      try { await setDoc(P(id), { gunReset: Date.now(), grant: [] }, {merge:true}); return true; } catch(e){ return false; } },
+    async resetDrones(id){ id=cleanId(id); if(!id) return false;
+      try { await setDoc(P(id), { droneReset: Date.now() }, {merge:true}); return true; } catch(e){ return false; } }
   };
 
   // ---- Realtime multiplayer: shared "rooms" where drones fly together ----
@@ -1822,6 +1825,7 @@ document.getElementById('admin-give').onclick=async ()=>{ if(!adminTarget||!wind
 document.getElementById('admin-take').onclick=async ()=>{ if(!adminTarget||!window.SkyNet) return; const amt=Math.floor(+document.getElementById('admin-coins').value||0); if(amt<=0){ adminMsg('Enter a coin amount','#ffd23f'); return; } adminMsg('Removing…','#35c8ff'); const ok=await window.SkyNet.removeCoins(adminTarget,amt); adminMsg(ok?('➖ Took '+amt+' coins from '+adminTarget):'Failed', ok?'#ffd23f':'#ff6a6a'); if(ok) document.getElementById('admin-coins').value=''; };
 document.getElementById('admin-resetcoins').onclick=async ()=>{ if(!adminTarget||!window.SkyNet) return; adminMsg('Resetting coins…','#35c8ff'); const ok=await window.SkyNet.resetCoins(adminTarget); adminMsg(ok?('🪙 Reset '+adminTarget+"'s coins to 0"):'Failed', ok?'#ffd23f':'#ff6a6a'); };
 document.getElementById('admin-resetguns').onclick=async ()=>{ if(!adminTarget||!window.SkyNet) return; adminMsg('Resetting guns…','#35c8ff'); const ok=await window.SkyNet.resetGuns(adminTarget); adminMsg(ok?('🔫 Reset '+adminTarget+"'s guns to Blaster"):'Failed', ok?'#ffd23f':'#ff6a6a'); };
+document.getElementById('admin-resetdrones').onclick=async ()=>{ if(!adminTarget||!window.SkyNet) return; adminMsg('Resetting drones…','#35c8ff'); const ok=await window.SkyNet.resetDrones(adminTarget); adminMsg(ok?('🚁 Reset '+adminTarget+"'s drones to Hornet"):'Failed', ok?'#ffd23f':'#ff6a6a'); };
 
 // ---- Watch my own account for bans / kicks / coin gifts (live) ------
 let selfUnsub=null, iamBanned=false, iamKicked=false;
@@ -1844,12 +1848,14 @@ function applyCoinReset(d){ const id=myId(); if(!id) return; const r=d.coinReset
   if(r>applied){ localStorage.setItem(key,String(r)); state.coins=0; localStorage.setItem('skyhawk-coins','0'); const el=document.getElementById('coin-n'); if(el) el.textContent='0'; } }
 function applyGunReset(d){ const id=myId(); if(!id) return; const r=d.gunReset||0, key='skyhawk-gunreset-'+id, applied=parseInt(localStorage.getItem(key)||'0',10);
   if(r>applied){ localStorage.setItem(key,String(r)); state.owned=new Set(['basic']); state.gun='basic'; saveGuns(); if(document.getElementById('shop').style.display!=='none') renderShop(); } }
+function applyDroneReset(d){ const id=myId(); if(!id) return; const r=d.droneReset||0, key='skyhawk-dronereset-'+id, applied=parseInt(localStorage.getItem(key)||'0',10);
+  if(r>applied){ localStorage.setItem(key,String(r)); state.drones=new Set(['hornet']); state.drone='hornet'; saveDrones(); if(typeof rebuildPlayerDrone==='function') rebuildPlayerDrone(); if(document.getElementById('droneshop').style.display!=='none') renderDroneShop(); } }
 function watchSelf(){
   if(selfUnsub){ try{selfUnsub();}catch(e){} selfUnsub=null; }
   const id=myId(); if(!id || !window.SkyNet || !window.SkyNet.watch) return;
   selfUnsub = window.SkyNet.watch(id, d=>{
     if(!d) return;
-    applyCoinReset(d); applyGunReset(d); applyCoinGrant(d);
+    applyCoinReset(d); applyGunReset(d); applyDroneReset(d); applyCoinGrant(d);
     if(d.banned) enforceBan(); else clearBan();
     // only a kick issued AFTER I loaded the page boots me — so rejoining (fresh load) always lets me back in
     if(d.kick && d.kick > SESSION_START && !iamKicked) getKicked();
