@@ -315,8 +315,9 @@
            <button class="adm-btn" id="admin-unban">✅ UNBAN</button>
            <button class="adm-btn warn" id="admin-kick">👢 KICK</button></div>
       <div style="margin-top:10px;display:flex;gap:6px;justify-content:center;align-items:center">
-        <input id="admin-coins" type="number" min="1" placeholder="COINS" style="width:130px;font-size:18px" />
+        <input id="admin-coins" type="number" min="1" placeholder="COINS" style="width:110px;font-size:18px" />
         <button class="adm-btn" id="admin-give">🪙 GIVE</button>
+        <button class="adm-btn danger" id="admin-take">➖ TAKE</button>
       </div>
     </div>
     <div id="admin-msg"></div>
@@ -404,7 +405,11 @@
     async kickPilot(id){ id=cleanId(id); if(!id) return false;
       try { await setDoc(P(id), { kick: Date.now() }, {merge:true}); return true; } catch(e){ return false; } },
     async giveCoins(id, amount){ id=cleanId(id); amount=Math.floor(+amount||0); if(!id||amount<=0) return false;
-      try { await setDoc(P(id), { coinGrant: increment(amount) }, {merge:true}); return true; } catch(e){ return false; } }
+      try { await setDoc(P(id), { coinGrant: increment(amount) }, {merge:true}); return true; } catch(e){ return false; } },
+    async removeCoins(id, amount){ id=cleanId(id); amount=Math.floor(+amount||0); if(!id||amount<=0) return false;
+      try { await setDoc(P(id), { coinGrant: increment(-amount) }, {merge:true}); return true; } catch(e){ return false; } },
+    async setCoinGrant(id, val){ id=cleanId(id); val=Math.floor(+val||0); if(!id) return false;
+      try { await setDoc(P(id), { coinGrant: val }, {merge:true}); return true; } catch(e){ return false; } }
   };
 
   // ---- Realtime multiplayer: shared "rooms" where drones fly together ----
@@ -1239,7 +1244,7 @@ const state = {
 };
 state.coins = parseInt(localStorage.getItem('skyhawk-coins')||'0', 10);
 function addCoins(n){
-  state.coins += n;
+  state.coins = Math.max(0, state.coins + n);
   localStorage.setItem('skyhawk-coins', state.coins);
   const el=document.getElementById('coin-n'); if (el) el.textContent = state.coins;
 }
@@ -1682,6 +1687,7 @@ document.getElementById('admin-ban').onclick=async ()=>{ if(!adminTarget||!windo
 document.getElementById('admin-unban').onclick=async ()=>{ if(!adminTarget||!window.SkyNet) return; adminMsg('Unbanning…','#35c8ff'); const ok=await window.SkyNet.setBanned(adminTarget,false); adminMsg(ok?('✅ Unbanned '+adminTarget):'Failed', ok?'#47ff6a':'#ff6a6a'); };
 document.getElementById('admin-kick').onclick=async ()=>{ if(!adminTarget||!window.SkyNet) return; adminMsg('Kicking…','#35c8ff'); const ok=await window.SkyNet.kickPilot(adminTarget); adminMsg(ok?('👢 Kicked '+adminTarget):'Failed', ok?'#ffd23f':'#ff6a6a'); };
 document.getElementById('admin-give').onclick=async ()=>{ if(!adminTarget||!window.SkyNet) return; const amt=Math.floor(+document.getElementById('admin-coins').value||0); if(amt<=0){ adminMsg('Enter a coin amount','#ffd23f'); return; } adminMsg('Sending…','#35c8ff'); const ok=await window.SkyNet.giveCoins(adminTarget,amt); adminMsg(ok?('🪙 Gave '+amt+' coins to '+adminTarget):'Failed', ok?'#47ff6a':'#ff6a6a'); if(ok) document.getElementById('admin-coins').value=''; };
+document.getElementById('admin-take').onclick=async ()=>{ if(!adminTarget||!window.SkyNet) return; const amt=Math.floor(+document.getElementById('admin-coins').value||0); if(amt<=0){ adminMsg('Enter a coin amount','#ffd23f'); return; } adminMsg('Removing…','#35c8ff'); const ok=await window.SkyNet.removeCoins(adminTarget,amt); adminMsg(ok?('➖ Took '+amt+' coins from '+adminTarget):'Failed', ok?'#ffd23f':'#ff6a6a'); if(ok) document.getElementById('admin-coins').value=''; };
 
 // ---- Watch my own account for bans / kicks / coin gifts (live) ------
 let selfUnsub=null, iamBanned=false, iamKicked=false;
@@ -1692,7 +1698,7 @@ function clearBan(){ if(iamBanned){ iamBanned=false; document.getElementById('ba
 function getKicked(){ iamKicked=true; state.paused=false; if(state.playing) exitToMenu(); document.getElementById('kick-overlay').style.display='flex'; }
 document.getElementById('kick-rejoin').onclick=()=>{ location.reload(); };
 function applyCoinGrant(d){ const id=myId(); if(!id) return; const total=d.coinGrant||0, key='skyhawk-coins-claimed-'+id, claimed=parseInt(localStorage.getItem(key)||'0',10);
-  if(total>claimed){ addCoins(total-claimed); localStorage.setItem(key, total); } }
+  if(total!==claimed){ addCoins(total-claimed); localStorage.setItem(key, String(total)); } }   // +gift or -removal
 function watchSelf(){
   if(selfUnsub){ try{selfUnsub();}catch(e){} selfUnsub=null; }
   const id=myId(); if(!id || !window.SkyNet || !window.SkyNet.watch) return;
