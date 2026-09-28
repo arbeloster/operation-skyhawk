@@ -88,7 +88,7 @@
   .btn:hover { background:#2a3d1a; }
   .btn:active { transform: translateY(2px); }
   .btn.gold { border-color:#ffb000; color:#ffb000; text-shadow:0 0 8px #a70; background:#2a2410; box-shadow:0 0 18px rgba(255,176,0,.3); }
-  #shop { display:none; }
+  #shop, #droneshop { display:none; }
   #shop-list { display:flex; flex-direction:column; gap:9px; margin:16px 0; width:100%; max-width:700px; }
   .shop-item { display:flex; align-items:center; gap:12px; text-align:left; background:rgba(10,14,6,.72);
     border:1px solid #3d4a2a; border-left:4px solid #ffb000; padding:11px 16px; }
@@ -261,6 +261,7 @@
   </div>
   <button class="btn" id="play-btn">▶ DEPLOY</button>
   <button class="btn gold" id="shop-open" style="margin-top:10px;font-size:18px;padding:11px 30px">🛠️ WEAPON SHOP</button>
+  <button class="btn gold" id="droneshop-open" style="margin-top:10px;font-size:18px;padding:11px 30px">🚁 DRONE SHOP</button>
   <button class="btn" id="gfx-btn" style="margin-top:10px;font-size:15px;padding:9px 22px;border-color:#35c8ff;color:#35c8ff;text-shadow:0 0 8px #068;background:#0e2230;box-shadow:0 0 14px rgba(53,200,255,.25)">🎨 GRAPHICS: HIGH</button>
   <button id="signin-btn">👤 SIGN IN</button>
   <button id="friends-btn">🧑‍🤝‍🧑 FRIENDS</button>
@@ -346,6 +347,14 @@
   <div class="sub">YOUR COINS: 🪙 <span id="shop-coins">0</span></div>
   <div id="shop-list"></div>
   <button class="btn" id="shop-back">◀ BACK</button>
+</div>
+
+<div id="droneshop" class="screen">
+  <div class="classified">// DRONE HANGAR //</div>
+  <h1>🚁 DRONE SHOP</h1>
+  <div class="sub">YOUR COINS: 🪙 <span id="dshop-coins">0</span></div>
+  <div id="dshop-list"></div>
+  <button class="btn" id="dshop-back">◀ BACK</button>
 </div>
 
 <div id="win" class="screen">
@@ -1296,14 +1305,30 @@ const UPGRADES = [
 state.upg = JSON.parse(localStorage.getItem('skyhawk-upg')||'{}');
 ['speed','boost','armor','motor'].forEach(k=>{ if (!state.upg[k]) state.upg[k]=0; });
 function saveUpg(){ localStorage.setItem('skyhawk-upg', JSON.stringify(state.upg)); }
-// derived stats from your upgrade levels:
-function maxSpeedMS(){  return (150 + state.upg.speed*20)/3.6; }       // top speed limit
-function boostSpeedMS(){return (200 + state.upg.speed*20)/3.6; }       // boost speed limit
-function maxThrust(){   return 26 + state.upg.motor*4; }               // motor power
-function maxHP(){       return 100 + state.upg.armor*40; }             // max health
+
+// ---- Buyable drones (each with its own look + stat bonuses) ----------
+const DRONES = [
+  { id:'hornet',  name:'Hornet',  price:0,    accent:0x35c8ff, frame:0x1a1c18, batt:0x243a5a, speed:0,  thrust:0,  hp:0,   boost:0,  desc:'The classic starter quad — a reliable all-rounder.' },
+  { id:'falcon',  name:'Falcon',  price:600,  accent:0x47ff6a, frame:0x14201a, batt:0x1e3a24, speed:20, thrust:4,  hp:0,   boost:10, desc:'Lightweight & nimble — faster with a stronger boost.' },
+  { id:'vulture', name:'Vulture', price:1200, accent:0xffd23f, frame:0x241c10, batt:0x3a2a10, speed:15, thrust:8,  hp:60,  boost:5,  desc:'Beefy motors and a tough hull — great for Combat.' },
+  { id:'phantom', name:'Phantom', price:2200, accent:0xb06bff, frame:0x1a1424, batt:0x2a1a3a, speed:45, thrust:8,  hp:20,  boost:25, desc:'Pro racer — huge top speed and boost.' },
+  { id:'titan',   name:'Titan',   price:3500, accent:0xff5a3a, frame:0x241010, batt:0x3a1010, speed:30, thrust:14, hp:140, boost:20, desc:'Armored powerhouse — monster power and health.' },
+];
+state.drones = new Set(JSON.parse(localStorage.getItem('skyhawk-drones')||'["hornet"]')); state.drones.add('hornet');
+state.drone = localStorage.getItem('skyhawk-drone') || 'hornet';
+if(!state.drones.has(state.drone)) state.drone='hornet';
+function curDrone(){ return DRONES.find(d=>d.id===state.drone) || DRONES[0]; }
+function saveDrones(){ localStorage.setItem('skyhawk-drones', JSON.stringify([...state.drones])); localStorage.setItem('skyhawk-drone', state.drone); }
+function equipDrone(id){ if(!state.drones.has(id)) return; state.drone=id; saveDrones(); if(typeof rebuildPlayerDrone==='function') rebuildPlayerDrone(); }
+
+// derived stats from your upgrade levels + equipped drone:
+function maxSpeedMS(){  return (150 + state.upg.speed*20 + curDrone().speed)/3.6; }   // top speed limit
+function boostSpeedMS(){return (200 + state.upg.speed*20 + curDrone().speed)/3.6; }   // boost speed limit
+function maxThrust(){   return 26 + state.upg.motor*4 + curDrone().thrust; }          // motor power
+function maxHP(){       return 100 + state.upg.armor*40 + curDrone().hp; }            // max health
 function boostDrain(){  return 42 - state.upg.boost*9; }               // lower = lasts longer
 function boostRecharge(){return 18 + state.upg.boost*8; }             // higher = refills faster
-function boostAcc(){    return 55 + state.upg.boost*10; }              // boost push
+function boostAcc(){    return 55 + state.upg.boost*10 + curDrone().boost; }          // boost push
 function shopHeader(text){ const h=document.createElement('div'); h.className='shop-head'; h.textContent=text; document.getElementById('shop-list').appendChild(h); }
 function renderShop(){
   document.getElementById('shop-coins').textContent = state.coins;
@@ -1452,9 +1477,16 @@ function buildDrone(opt){
   });
   return { group:g, props };
 }
-const _player = buildDrone({ accent:0x35c8ff, batt:0x243a5a });
-const drone = _player.group; const props = _player.props;
-scene.add(drone); drone.visible=false;
+let drone, props;
+function rebuildPlayerDrone(){
+  const wasVisible = drone ? drone.visible : false;
+  if(drone) scene.remove(drone);
+  const cd = curDrone();
+  const built = buildDrone({ accent:cd.accent, frame:cd.frame, batt:cd.batt });
+  drone = built.group; props = built.props;
+  drone.visible = wasVisible; scene.add(drone);
+}
+rebuildPlayerDrone(); drone.visible=false;
 
 // ---- Camera ---------------------------------------------------------
 let viewMode = 0;
@@ -1594,6 +1626,26 @@ document.getElementById('play-btn').onclick=startGame;
 document.getElementById('play-btn2').onclick=()=>{ document.getElementById('win').style.display='none'; document.getElementById('start').style.display='flex'; };
 document.getElementById('shop-open').onclick=()=>{ document.getElementById('start').style.display='none'; document.getElementById('shop').style.display='flex'; renderShop(); };
 document.getElementById('shop-back').onclick=()=>{ document.getElementById('shop').style.display='none'; document.getElementById('start').style.display='flex'; };
+
+function renderDroneShop(){
+  document.getElementById('dshop-coins').textContent = state.coins;
+  const list=document.getElementById('dshop-list'); list.innerHTML='';
+  DRONES.forEach(d=>{
+    const owned=state.drones.has(d.id), equipped=state.drone===d.id;
+    const row=document.createElement('div'); row.className='shop-item';
+    const stats=`⚡+${d.speed} · 🔧+${d.thrust} · 🛡️+${d.hp} · 🚀+${d.boost}`;
+    row.innerHTML = `<div><div class="nm">🚁 ${d.name}</div><div class="ds">${d.desc}<br><span style="color:#8a9b6a">${stats}</span></div></div>`
+      + `<div class="pr">${d.price? ('🪙 '+d.price):'FREE'}</div>`;
+    const btn=document.createElement('button');
+    if (equipped){ btn.className='shop-btn owned'; btn.textContent='EQUIPPED'; }
+    else if (owned){ btn.className='shop-btn equip'; btn.textContent='EQUIP'; btn.onclick=()=>{ equipDrone(d.id); renderDroneShop(); }; }
+    else if (state.coins>=d.price){ btn.className='shop-btn'; btn.textContent='BUY'; btn.onclick=()=>{ addCoins(-d.price); state.drones.add(d.id); equipDrone(d.id); renderDroneShop(); }; }
+    else { btn.className='shop-btn cant'; btn.textContent='NEED 🪙'+(d.price-state.coins); }
+    row.appendChild(btn); list.appendChild(row);
+  });
+}
+document.getElementById('droneshop-open').onclick=()=>{ document.getElementById('start').style.display='none'; document.getElementById('droneshop').style.display='flex'; renderDroneShop(); };
+document.getElementById('dshop-back').onclick=()=>{ document.getElementById('droneshop').style.display='none'; document.getElementById('start').style.display='flex'; };
 document.getElementById('gfx-btn').onclick=()=>{ GFX=(GFX==='high')?'low':'high'; localStorage.setItem('skyhawk-gfx',GFX); applyGfx(); };
 applyGfx();   // set the button label to match the saved setting
 
