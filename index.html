@@ -319,6 +319,10 @@
         <button class="adm-btn" id="admin-give">🪙 GIVE</button>
         <button class="adm-btn danger" id="admin-take">➖ TAKE</button>
       </div>
+      <div style="margin-top:10px">
+        <button class="adm-btn danger" id="admin-resetcoins">🪙 RESET COINS</button>
+        <button class="adm-btn danger" id="admin-resetguns">🔫 RESET GUNS</button>
+      </div>
     </div>
     <div id="admin-msg"></div>
     <button class="btn" id="admin-close" style="margin-top:12px;font-size:15px;padding:8px 18px">◀ CLOSE</button>
@@ -409,7 +413,11 @@
     async removeCoins(id, amount){ id=cleanId(id); amount=Math.floor(+amount||0); if(!id||amount<=0) return false;
       try { await setDoc(P(id), { coinGrant: increment(-amount) }, {merge:true}); return true; } catch(e){ return false; } },
     async setCoinGrant(id, val){ id=cleanId(id); val=Math.floor(+val||0); if(!id) return false;
-      try { await setDoc(P(id), { coinGrant: val }, {merge:true}); return true; } catch(e){ return false; } }
+      try { await setDoc(P(id), { coinGrant: val }, {merge:true}); return true; } catch(e){ return false; } },
+    async resetCoins(id){ id=cleanId(id); if(!id) return false;
+      try { await setDoc(P(id), { coinReset: Date.now(), coinGrant: 0 }, {merge:true}); return true; } catch(e){ return false; } },
+    async resetGuns(id){ id=cleanId(id); if(!id) return false;
+      try { await setDoc(P(id), { gunReset: Date.now(), grant: [] }, {merge:true}); return true; } catch(e){ return false; } }
   };
 
   // ---- Realtime multiplayer: shared "rooms" where drones fly together ----
@@ -1688,6 +1696,8 @@ document.getElementById('admin-unban').onclick=async ()=>{ if(!adminTarget||!win
 document.getElementById('admin-kick').onclick=async ()=>{ if(!adminTarget||!window.SkyNet) return; adminMsg('Kicking…','#35c8ff'); const ok=await window.SkyNet.kickPilot(adminTarget); adminMsg(ok?('👢 Kicked '+adminTarget):'Failed', ok?'#ffd23f':'#ff6a6a'); };
 document.getElementById('admin-give').onclick=async ()=>{ if(!adminTarget||!window.SkyNet) return; const amt=Math.floor(+document.getElementById('admin-coins').value||0); if(amt<=0){ adminMsg('Enter a coin amount','#ffd23f'); return; } adminMsg('Sending…','#35c8ff'); const ok=await window.SkyNet.giveCoins(adminTarget,amt); adminMsg(ok?('🪙 Gave '+amt+' coins to '+adminTarget):'Failed', ok?'#47ff6a':'#ff6a6a'); if(ok) document.getElementById('admin-coins').value=''; };
 document.getElementById('admin-take').onclick=async ()=>{ if(!adminTarget||!window.SkyNet) return; const amt=Math.floor(+document.getElementById('admin-coins').value||0); if(amt<=0){ adminMsg('Enter a coin amount','#ffd23f'); return; } adminMsg('Removing…','#35c8ff'); const ok=await window.SkyNet.removeCoins(adminTarget,amt); adminMsg(ok?('➖ Took '+amt+' coins from '+adminTarget):'Failed', ok?'#ffd23f':'#ff6a6a'); if(ok) document.getElementById('admin-coins').value=''; };
+document.getElementById('admin-resetcoins').onclick=async ()=>{ if(!adminTarget||!window.SkyNet) return; adminMsg('Resetting coins…','#35c8ff'); const ok=await window.SkyNet.resetCoins(adminTarget); adminMsg(ok?('🪙 Reset '+adminTarget+"'s coins to 0"):'Failed', ok?'#ffd23f':'#ff6a6a'); };
+document.getElementById('admin-resetguns').onclick=async ()=>{ if(!adminTarget||!window.SkyNet) return; adminMsg('Resetting guns…','#35c8ff'); const ok=await window.SkyNet.resetGuns(adminTarget); adminMsg(ok?('🔫 Reset '+adminTarget+"'s guns to Blaster"):'Failed', ok?'#ffd23f':'#ff6a6a'); };
 
 // ---- Watch my own account for bans / kicks / coin gifts (live) ------
 let selfUnsub=null, iamBanned=false, iamKicked=false;
@@ -1705,12 +1715,17 @@ function applyCoinGrant(d){
   claimingCoins=true; addCoins(total);   // +gift or -removal (coins never go below 0)
   Promise.resolve(window.SkyNet && window.SkyNet.setCoinGrant ? window.SkyNet.setCoinGrant(id,0) : null).finally(()=>{ claimingCoins=false; });
 }
+// Admin resets (one-time signals): set coins to 0 / put guns back to just the basic blaster
+function applyCoinReset(d){ const id=myId(); if(!id) return; const r=d.coinReset||0, key='skyhawk-coinreset-'+id, applied=parseInt(localStorage.getItem(key)||'0',10);
+  if(r>applied){ localStorage.setItem(key,String(r)); state.coins=0; localStorage.setItem('skyhawk-coins','0'); const el=document.getElementById('coin-n'); if(el) el.textContent='0'; } }
+function applyGunReset(d){ const id=myId(); if(!id) return; const r=d.gunReset||0, key='skyhawk-gunreset-'+id, applied=parseInt(localStorage.getItem(key)||'0',10);
+  if(r>applied){ localStorage.setItem(key,String(r)); state.owned=new Set(['basic']); state.gun='basic'; saveGuns(); if(document.getElementById('shop').style.display!=='none') renderShop(); } }
 function watchSelf(){
   if(selfUnsub){ try{selfUnsub();}catch(e){} selfUnsub=null; }
   const id=myId(); if(!id || !window.SkyNet || !window.SkyNet.watch) return;
   selfUnsub = window.SkyNet.watch(id, d=>{
     if(!d) return;
-    applyCoinGrant(d);
+    applyCoinReset(d); applyGunReset(d); applyCoinGrant(d);
     if(d.banned) enforceBan(); else clearBan();
     // only a kick issued AFTER I loaded the page boots me — so rejoining (fresh load) always lets me back in
     if(d.kick && d.kick > SESSION_START && !iamKicked) getKicked();
