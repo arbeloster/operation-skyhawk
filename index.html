@@ -1006,22 +1006,42 @@ function buildCourse(){
 }
 
 let enemies = [], enemyBullets = [];
-function buildEnemies(){
-  clearGroup(enemyGroup); enemies=[]; enemyBullets=[];
-  const spots=[[25,-45],[-30,-70],[45,-105],[-45,-135]];
-  spots.forEach(([x,z])=>{
-    const g=new THREE.Group();
-    const bmat=new THREE.MeshStandardMaterial({color:0x9a2222, metalness:.3, roughness:.5});
-    const legMat=new THREE.MeshStandardMaterial({color:0x4a1414, roughness:.7});
-    [-0.5,0.5].forEach(sx=>{ const leg=new THREE.Mesh(new THREE.BoxGeometry(0.5,1.6,0.5), legMat); leg.position.set(sx,0.8,0); leg.castShadow=true; g.add(leg); });
-    const body=new THREE.Mesh(new THREE.BoxGeometry(1.8,2,1.4), bmat); body.position.y=2.6; body.castShadow=true; g.add(body);
-    const head=new THREE.Mesh(new THREE.BoxGeometry(1.2,1,1.2), new THREE.MeshStandardMaterial({color:0x6f1818})); head.position.y=4.2; g.add(head);
-    const eye=new THREE.Mesh(new THREE.SphereGeometry(0.22,10,8), new THREE.MeshStandardMaterial({color:0xff2020, emissive:0xff0000, emissiveIntensity:2})); eye.position.set(0,4.2,-0.65); g.add(eye);
-    const gun=new THREE.Mesh(new THREE.BoxGeometry(0.35,0.35,1.6), new THREE.MeshStandardMaterial({color:0x222222, metalness:.6})); gun.position.set(0.7,2.6,-0.9); g.add(gun);
-    const ice=new THREE.Mesh(new THREE.BoxGeometry(2.6,5.2,2.4), new THREE.MeshStandardMaterial({color:0x9fe0ff, transparent:true, opacity:0.5, emissive:0x2299dd, emissiveIntensity:0.5}));
-    ice.position.y=2.6; ice.visible=false; g.add(ice);
-    g.position.set(x,0,z); g.userData={alive:true, nextShot:rnd(1.5,3.5), frozen:0, ice}; enemyGroup.add(g); enemies.push(g);
-  });
+function spawnEnemy(x,z,opt){
+  opt=opt||{};
+  const g=new THREE.Group();
+  const bodyCol=opt.boss?0x6a2a8a:0x9a2222, headCol=opt.boss?0x4a1060:0x6f1818, eyeCol=opt.boss?0xff40ff:0xff2020;
+  const bmat=new THREE.MeshStandardMaterial({color:bodyCol, metalness:.3, roughness:.5});
+  const legMat=new THREE.MeshStandardMaterial({color:0x4a1414, roughness:.7});
+  [-0.5,0.5].forEach(sx=>{ const leg=new THREE.Mesh(new THREE.BoxGeometry(0.5,1.6,0.5), legMat); leg.position.set(sx,0.8,0); leg.castShadow=true; g.add(leg); });
+  const body=new THREE.Mesh(new THREE.BoxGeometry(1.8,2,1.4), bmat); body.position.y=2.6; body.castShadow=true; g.add(body);
+  const head=new THREE.Mesh(new THREE.BoxGeometry(1.2,1,1.2), new THREE.MeshStandardMaterial({color:headCol})); head.position.y=4.2; g.add(head);
+  const eye=new THREE.Mesh(new THREE.SphereGeometry(0.22,10,8), new THREE.MeshStandardMaterial({color:eyeCol, emissive:eyeCol, emissiveIntensity:2})); eye.position.set(0,4.2,-0.65); g.add(eye);
+  const gun=new THREE.Mesh(new THREE.BoxGeometry(0.35,0.35,1.6), new THREE.MeshStandardMaterial({color:0x222222, metalness:.6})); gun.position.set(0.7,2.6,-0.9); g.add(gun);
+  const ice=new THREE.Mesh(new THREE.BoxGeometry(2.6,5.2,2.4), new THREE.MeshStandardMaterial({color:0x9fe0ff, transparent:true, opacity:0.5, emissive:0x2299dd, emissiveIntensity:0.5}));
+  ice.position.y=2.6; ice.visible=false; g.add(ice);
+  g.position.set(x,0,z); if(opt.scale) g.scale.setScalar(opt.scale);
+  const hp=opt.hp||1;
+  g.userData={ alive:true, nextShot:rnd(opt.fireMin||1.5,opt.fireMax||3.5), frozen:0, ice,
+    hp, maxhp:hp, spread:(opt.spread!=null?opt.spread:8), fireMin:opt.fireMin||1.6, fireMax:opt.fireMax||3.4,
+    boss:!!opt.boss, coins: opt.boss?(120+state.wave*10):20 };
+  enemyGroup.add(g); enemies.push(g); return g;
+}
+function buildWave(w){
+  clearGroup(enemyGroup); enemies=[];
+  for(const b of enemyBullets) fxGroup.remove(b); enemyBullets=[];
+  localStorage.setItem('skyhawk-bestwave', String(Math.max(parseInt(localStorage.getItem('skyhawk-bestwave')||'0',10), w)));
+  const boss = (w % 10 === 0);
+  const spread  = Math.max(0.7, 8 - w*0.7);                 // aim gets tighter (better) each wave
+  const fireMin = Math.max(0.6, 1.6 - w*0.04), fireMax = Math.max(1.1, 3.4 - w*0.09);
+  if(boss){
+    spawnEnemy(0, -95, { boss:true, hp: 25 + w*4, spread: Math.max(0.5, spread*0.6), fireMin:0.5, fireMax:1.1, scale:2.4 });
+    const guards = Math.min(2 + Math.floor(w/10), 6);
+    for(let i=0;i<guards;i++){ const a=i/guards*6.283; spawnEnemy(Math.cos(a)*45, -75+Math.sin(a)*35, { hp:1, spread, fireMin, fireMax }); }
+  } else {
+    const count = Math.min(3 + w, 16);
+    for(let i=0;i<count;i++){ const a=i/count*6.283, r=rnd(55,115); spawnEnemy(Math.cos(a)*r, Math.sin(a)*r - 20, { hp:1, spread, fireMin, fireMax }); }
+  }
+  updateWaveHUD();
 }
 
 // ======================================================================
@@ -1070,7 +1090,7 @@ function fireLightning(){
   for (let n=0;n<2 && alive.length;n++){
     const e = alive.splice(Math.floor(Math.random()*alive.length),1)[0];
     lightningStrike(new THREE.Vector3(e.position.x,0,e.position.z));
-    killEnemy(e);
+    damageEnemy(e, 6);
   }
 }
 function shoot(){
@@ -1108,7 +1128,7 @@ function laserChain(from){
   const t = alive[Math.floor(Math.random()*alive.length)];
   const p1=new THREE.Vector3(from.position.x,2.6,from.position.z), p2=new THREE.Vector3(t.position.x,2.6,t.position.z);
   effects.push({ m: makeBeam(p1,p2,0xff4466,0.2), t:0, dur:0.25 });
-  killEnemy(t);
+  damageEnemy(t, 4);
 }
 function freezeNearest(target,n){
   const alive = enemies.filter(e=>e.userData.alive && e!==target)
@@ -1118,15 +1138,28 @@ function freezeNearest(target,n){
 function killEnemy(e){
   if (!e.userData.alive) return;
   e.userData.alive=false; enemyGroup.remove(e);
-  explode(new THREE.Vector3(e.position.x,2.6,e.position.z));
-  state.kills++; addCoins(20);
-  document.getElementById('rings').textContent = state.kills+'/'+enemies.length;
-  if (state.kills>=enemies.length) winGame();
+  explode(new THREE.Vector3(e.position.x,2.6,e.position.z), e.userData.boss);
+  addCoins(e.userData.coins||20);
+  updateWaveHUD();
+  if (enemies.every(en=>!en.userData.alive)) waveCleared();
+}
+function damageEnemy(e, dmg){ if(!e.userData.alive) return; e.userData.hp -= dmg; if(e.userData.hp<=0) killEnemy(e); }
+function updateWaveHUD(){
+  const remaining = enemies.filter(e=>e.userData.alive).length;
+  const r=document.getElementById('rings'); if(r) r.textContent = 'WAVE '+state.wave+'  ·  '+remaining+' LEFT';
+}
+function waveCleared(){
+  addCoins(30 + state.wave*5);                 // wave-clear bonus
+  state.wave += 1;
+  const boss=(state.wave%10===0);
+  const c=document.getElementById('cheer'); c.textContent = boss? ('⚠ BOSS — WAVE '+state.wave+'!') : ('WAVE '+state.wave+'!');
+  c.style.opacity=1; setTimeout(()=>c.style.opacity=0, 1500);
+  setTimeout(()=>{ if(state.playing && state.mode==='combat' && !state.dead) buildWave(state.wave); }, 1700);
 }
 function explodeAoE(pos, radius){
   explode(pos, true);
   for (const e of enemies){ if (!e.userData.alive) continue;
-    if (new THREE.Vector3(e.position.x,2.6,e.position.z).distanceTo(pos) < radius) killEnemy(e); }
+    if (new THREE.Vector3(e.position.x,2.6,e.position.z).distanceTo(pos) < radius) damageEnemy(e, 6); }
 }
 function explode(pos, big){
   const m = new THREE.Mesh(new THREE.SphereGeometry(1,12,10),
@@ -1135,16 +1168,18 @@ function explode(pos, big){
   boomSound();
 }
 function enemyShoot(e){
-  const muzzle = new THREE.Vector3(e.position.x, 2.8, e.position.z);
-  // aim at the player but with a big random spread, so they miss a lot!
-  const aim = state.pos.clone();
-  aim.x += rnd(-8,8); aim.y += rnd(-5,5); aim.z += rnd(-8,8);
-  const dir = new THREE.Vector3().subVectors(aim, muzzle).normalize();
-  const b = makeTracer(0xffd060, 0xff6a00);
-  b.position.copy(muzzle); orientTracer(b, dir);
-  b.userData = { vel: dir.multiplyScalar(44), life: 4 };
-  fxGroup.add(b); enemyBullets.push(b);
-  blip(520,120,0.12,'square',0.05);
+  const s=e.scale.y||1, sp=(e.userData.spread!=null?e.userData.spread:8);
+  const muzzle = new THREE.Vector3(e.position.x, 2.8*s, e.position.z);
+  const shots = e.userData.boss ? 3 : 1;   // higher waves aim tighter (smaller spread); bosses fire a burst
+  for(let n=0;n<shots;n++){
+    const aim = state.pos.clone();
+    aim.x += rnd(-sp,sp); aim.y += rnd(-sp*0.6,sp*0.6); aim.z += rnd(-sp,sp);
+    const dir = new THREE.Vector3().subVectors(aim, muzzle).normalize();
+    const b = makeTracer(e.userData.boss?0xff40ff:0xffd060, e.userData.boss?0xcc00cc:0xff6a00);
+    b.position.copy(muzzle); orientTracer(b, dir);
+    b.userData = { vel: dir.clone().multiplyScalar(e.userData.boss?60:44), life: 4 };
+    fxGroup.add(b); enemyBullets.push(b);
+  }
 }
 function updateEnemies(dt){
   const p = state.pos;
@@ -1176,15 +1211,15 @@ function updateBullets(dt){
     let done=false;
     if (k==='rocket' || k==='homing'){
       let boom = (b.userData.life<=0 || b.position.y<0);
-      if (!boom){ for (const e of enemies){ if (!e.userData.alive) continue;
-        if (b.position.distanceTo(new THREE.Vector3(e.position.x,2.6,e.position.z))<3){ boom=true; break; } } }
+      if (!boom){ for (const e of enemies){ if (!e.userData.alive) continue; const s=e.scale.x||1;
+        if (b.position.distanceTo(new THREE.Vector3(e.position.x,2.6*s,e.position.z))<3*s){ boom=true; break; } } }
       if (boom){ explodeAoE(b.position.clone(), b.userData.radius||10); done=true; }
     } else {
-      for (const e of enemies){ if (!e.userData.alive) continue;
-        if (b.position.distanceTo(new THREE.Vector3(e.position.x,2.6,e.position.z)) < 2.6){
-          if (k==='laser'){ killEnemy(e); laserChain(e); }
-          else if (k==='freeze'){ killEnemy(e); freezeNearest(e,2); }
-          else killEnemy(e);
+      for (const e of enemies){ if (!e.userData.alive) continue; const s=e.scale.x||1;
+        if (b.position.distanceTo(new THREE.Vector3(e.position.x,2.6*s,e.position.z)) < 2.6*s){
+          if (k==='laser'){ damageEnemy(e,5); laserChain(e); }
+          else if (k==='freeze'){ damageEnemy(e,4); freezeNearest(e,2); }
+          else damageEnemy(e,1);
           done=true; break; } }
       if (!done && (b.userData.life<=0 || b.position.y<0)) done=true;
     }
@@ -1222,9 +1257,25 @@ function damage(d){
   flash.style.opacity=0.3; setTimeout(()=>flash.style.opacity=0, 90);   // red hit flash
 }
 function die(){
-  state.dead=true; state.respawn=3;
+  state.dead=true; state.respawn=1.8;
   explode(state.pos.clone()); boomSound();
-  document.getElementById('death').style.display='block';
+  const dv=document.getElementById('death');
+  dv.innerHTML='DRONE DESTROYED<br><span style="font-size:24px">GAME OVER</span>';
+  dv.style.display='block';
+}
+function endCombat(){
+  document.getElementById('death').style.display='none';
+  state.dead=false; state.playing=false;
+  const reached=state.wave, prev=parseInt(localStorage.getItem('skyhawk-bestwave')||'0',10);
+  const best=Math.max(prev,reached); localStorage.setItem('skyhawk-bestwave', String(best));
+  document.getElementById('win-title').textContent='GAME OVER';
+  document.getElementById('win-stat-lbl').textContent='WAVE REACHED';
+  document.getElementById('win-time').textContent=reached;
+  document.getElementById('win-best').textContent = (reached>prev)?'★ NEW BEST WAVE! ★':('BEST WAVE: '+best);
+  document.getElementById('osd').style.display='none';
+  document.getElementById('win').style.display='flex';
+  releaseAllTouch(); refreshTouchUI(); leaveRoomAndClear();
+  if (window.SkyNet) window.SkyNet.setStatus('menu');
 }
 function respawnPlayer(){
   state.dead=false; state.health=maxHP(); updateHPbar(); state.invuln=2;
@@ -1563,8 +1614,8 @@ function setupHUD(){
   document.getElementById('b-fire').style.display = (state.mode==='combat') ? 'flex' : 'none';
   if (state.mode==='race'){ objLbl.textContent='WAYPOINT'; document.getElementById('rings').textContent='0/'+rings.length;
     timeLbl.textContent='MISSION TIME'; bestRow.style.display='inline'; mh.textContent=''; }
-  else if (state.mode==='combat'){ objLbl.textContent='TARGETS'; document.getElementById('rings').textContent='0/'+enemies.length;
-    timeLbl.textContent='TIME'; bestRow.style.display='none'; mh.textContent='◈ '+(WNAME[state.gun]||'BLASTER')+'  ·  [ F ] SHOOT'; }
+  else if (state.mode==='combat'){ objLbl.textContent='';
+    timeLbl.textContent='TIME'; bestRow.style.display='none'; mh.textContent='◈ '+(WNAME[state.gun]||'BLASTER')+'  ·  [ F ] SHOOT'; updateWaveHUD(); }
   else { objLbl.textContent='FREE FLIGHT'; document.getElementById('rings').textContent='∞';
     timeLbl.textContent='TIME'; bestRow.style.display='none'; mh.textContent='◈ NO LIMITS — JUST FLY'; }
 }
@@ -1578,7 +1629,7 @@ function startGame(){
   rings=[]; enemies=[]; bullets=[]; explosions=[]; effects=[]; enemyBullets=[]; lastShot=-100;
   (MAP_BUILDERS[state.map] || buildFlat)();
   if (state.mode==='race') buildCourse();
-  if (state.mode==='combat') buildEnemies();
+  if (state.mode==='combat'){ state.wave=1; buildWave(1); }
   state.noBattery = (state.mode!=='race');
 
   state.pos.set(0,1.2,0); state.vel.set(0,0,0); state.quat.identity();
@@ -1625,11 +1676,16 @@ function winGame(){
 const MODE_DESC = {
   race:'RACE: fly through every glowing gate as fast as you can!',
   freestyle:'FREESTYLE: no gates, no timer, no battery — just fly forever!',
-  combat:'COMBAT: hunt the red robots and shoot them with [ F ]!',
+  combat:'COMBAT: survive endless waves of robots! Clear a wave to reach the next — boss every 10!',
 };
+function updateModeDesc(){
+  let t = MODE_DESC[state.mode]||'';
+  if(state.mode==='combat'){ const bw=parseInt(localStorage.getItem('skyhawk-bestwave')||'0',10); if(bw>0) t += '   🏆 BEST: WAVE '+bw; }
+  document.getElementById('mode-desc').textContent = t;
+}
 document.querySelectorAll('#mode-pick .modebtn').forEach(b=>{
   b.onclick=()=>{ state.mode=b.dataset.mode; document.querySelectorAll('#mode-pick .modebtn').forEach(x=>x.classList.remove('on')); b.classList.add('on');
-    document.getElementById('mode-desc').textContent=MODE_DESC[state.mode]; };
+    updateModeDesc(); };
 });
 document.querySelectorAll('#map-pick .mapbtn').forEach(b=>{
   b.onclick=()=>{ state.map=b.dataset.map; document.querySelectorAll('#map-pick .mapbtn').forEach(x=>x.classList.remove('on')); b.classList.add('on'); };
@@ -1862,7 +1918,7 @@ function joinFriend(id){
   state.mode=d.mode; state.map=d.map||'flat';   // hop into the same world your friend is in
   document.querySelectorAll('#mode-pick .modebtn').forEach(x=>x.classList.toggle('on', x.dataset.mode===state.mode));
   document.querySelectorAll('#map-pick .mapbtn').forEach(x=>x.classList.toggle('on', x.dataset.map===state.map));
-  document.getElementById('mode-desc').textContent = MODE_DESC[state.mode]||'';
+  updateModeDesc();
   document.getElementById('friends').style.display='none'; stopFriendWatchers();
   pendingRoom = id;                              // land in my friend's room so we fly together
   startGame();
@@ -1997,11 +2053,10 @@ function loop(now){
   const dt = Math.min((now-last)/1000, 0.033); last = now;
   if (state.playing && !state.paused){
     if (state.dead){
-      // exploded — count down to respawn, keep the explosion animating
+      // destroyed — keep the explosion animating, then it's game over
       state.respawn -= dt;
-      document.getElementById('respawn-num').textContent = Math.max(0, Math.ceil(state.respawn));
       updateFx(dt);
-      if (state.respawn <= 0) respawnPlayer();
+      if (state.respawn <= 0) endCombat();
     } else {
       state.time += dt; fly(dt);
       if (mobileFire) shoot();
