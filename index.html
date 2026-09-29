@@ -1205,6 +1205,22 @@ function firePvpHoming(dir){
     fxGroup.add(b); bullets.push(b);
   }
 }
+// 1v1 lightning: call bolts from the sky onto the enemy drone / base when you're near them
+function firePvpLightning(){
+  let did=false;
+  const rp = pvp.enemyId ? remotePlayers[pvp.enemyId] : null;
+  if (rp && rp.group && state.pos.distanceTo(rp.group.position) < 80){
+    lightningStrike(new THREE.Vector3(rp.group.position.x, 0, rp.group.position.z));
+    if (window.SkyNet) window.SkyNet.pvpSendHit(pvp.room, pvp.enemyId, 'drone', 16);
+    did=true;
+  }
+  if (pvp.enemyBase && state.pos.distanceTo(pvp.enemyBase.center) < 58){
+    lightningStrike(new THREE.Vector3(pvp.enemyBase.center.x, 0, pvp.enemyBase.center.z));
+    if (window.SkyNet && pvp.enemyId) window.SkyNet.pvpSendHit(pvp.room, pvp.enemyId, 'base', 15);
+    did=true;
+  }
+  if (!did){ const f=camForward(), p=state.pos.clone().addScaledVector(f,30); lightningStrike(new THREE.Vector3(p.x,0,p.z)); }  // still flashes so it feels alive
+}
 function shoot(){
   if (!state.playing || state.paused || state.dead) return;
   if (state.mode!=='combat' && !pvp.on) return;
@@ -1214,11 +1230,12 @@ function shoot(){
   const dir = camForward();
   if (pvp.on){                                   // 1v1: every gun makes a bolt that can hit players & bases
     const g = state.gun;
-    if (g==='rocket')      fireRocket(dir);
-    else if (g==='homing') firePvpHoming(dir);
-    else if (g==='laser')  fireBolt(dir, 'laser',  0xff4466, 0xff0033);
-    else if (g==='freeze') fireBolt(dir, 'freeze', 0x9fe0ff, 0x33aaff);
-    else                   fireBolt(dir, 'normal', 0x9effc0, 0x30ff90);   // basic/triple/lightning → bolt
+    if (g==='rocket')         fireRocket(dir);
+    else if (g==='homing')    firePvpHoming(dir);
+    else if (g==='lightning') firePvpLightning();
+    else if (g==='laser')     fireBolt(dir, 'laser',  0xff4466, 0xff0033);
+    else if (g==='freeze')    fireBolt(dir, 'freeze', 0x9fe0ff, 0x33aaff);
+    else                      fireBolt(dir, 'normal', 0x9effc0, 0x30ff90);   // basic/triple → bolt
     shootSound(); return;
   }
   switch (state.gun){
@@ -2312,8 +2329,16 @@ function joinRoomForGame(){
 // ======================================================================
 //  1v1 BASE BATTLE
 // ======================================================================
-function buildBase(pos, color){
-  const g = new THREE.Group(); g.position.copy(pos);
+function makeBaseLabel(text, color){
+  const c=document.createElement('canvas'); c.width=512; c.height=96; const x=c.getContext('2d');
+  x.font='bold 52px "Courier New", monospace'; x.textAlign='center'; x.textBaseline='middle';
+  x.lineWidth=9; x.strokeStyle='rgba(0,0,0,0.9)'; x.strokeText(text,256,50);
+  x.fillStyle=color; x.fillText(text,256,50);
+  const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c), transparent:true, depthWrite:false, depthTest:false}));
+  s.scale.set(34,6.4,1); return s;   // always-on-top signpost so you can find your base
+}
+function buildBase(pos, color, scale){
+  const g = new THREE.Group(); g.position.copy(pos); g.scale.setScalar(scale||1);
   const plat = new THREE.Mesh(new THREE.CylinderGeometry(11,13,2,24),
     new THREE.MeshStandardMaterial({color:0x20242a, metalness:.6, roughness:.5}));
   plat.position.y=1; g.add(plat);
@@ -2349,14 +2374,17 @@ function bulletDmg(b){ const k=(b&&b.userData)?b.userData.kind:'normal';
 function setupPvp(room){
   pvp.on=true; pvp.ended=false; pvp.room=room; pvp.enemyId=null; pvp.appliedHits=new Set();
   pvp.iAmHost = (myId()===room);
-  const D=70, north=new THREE.Vector3(0,0,-D), south=new THREE.Vector3(0,0,D);
+  const D=115, S=1.7, north=new THREE.Vector3(0,0,-D), south=new THREE.Vector3(0,0,D);   // farther apart + bigger bases
   const myPos = pvp.iAmHost?north:south, enemyPos = pvp.iAmHost?south:north;
   clearGroup(pvpGroup);
-  const myMesh = buildBase(myPos, 0x47ff6a), enMesh = buildBase(enemyPos, 0xff4040);
+  const myMesh = buildBase(myPos, 0x47ff6a, S), enMesh = buildBase(enemyPos, 0xff4040, S);
+  // floating signposts so you always know which base is which (and don't shoot your own!)
+  const myLbl = makeBaseLabel('▼ YOUR BASE ▼', '#8dff8d');   myLbl.position.set(myPos.x, 40, myPos.z);       pvpGroup.add(myLbl);
+  const enLbl = makeBaseLabel('▼ ENEMY BASE ▼','#ff7a7a');   enLbl.position.set(enemyPos.x, 40, enemyPos.z);  pvpGroup.add(enLbl);
   const spawn = myPos.clone().add(new THREE.Vector3(0,7,0));
   const dir = enemyPos.clone().sub(myPos), yaw = Math.atan2(dir.x, dir.z);
-  pvp.myBase    = { hp:BASE_HP, max:BASE_HP, mesh:myMesh, center:new THREE.Vector3(myPos.x,8,myPos.z),    radius:13, spawn, yaw };
-  pvp.enemyBase = { hp:BASE_HP, max:BASE_HP, mesh:enMesh, center:new THREE.Vector3(enemyPos.x,8,enemyPos.z), radius:13 };
+  pvp.myBase    = { hp:BASE_HP, max:BASE_HP, mesh:myMesh, center:new THREE.Vector3(myPos.x,8*S,myPos.z),    radius:13*S, spawn, yaw };
+  pvp.enemyBase = { hp:BASE_HP, max:BASE_HP, mesh:enMesh, center:new THREE.Vector3(enemyPos.x,8*S,enemyPos.z), radius:13*S };
   // spawn at my own base, facing the enemy
   state.pos.copy(spawn); state.vel.set(0,0,0); state.quat.identity();
   state.yaw=yaw; state.pitchV=0; state.rollV=0; state.camPitch=0; state.throttle=0;
