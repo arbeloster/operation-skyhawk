@@ -680,7 +680,7 @@ const pvpGroup = new THREE.Group(); scene.add(pvpGroup);        // 1v1 base stru
 function clearGroup(g){ while(g.children.length){ g.remove(g.children[0]); } }
 
 // ---- 1v1 base battle state ----
-const BASE_HP = 500;                                            // 5× a Hornet's 100 HP
+const BASE_HP = 1000;                                           // 10× a Hornet's 100 HP (doubled for longer battles)
 let pendingPvp = null;                                          // set by launchParty → consumed by startGame
 let pvp = { on:false, ended:false, room:null, enemyId:null, iAmHost:false,
             myBase:null, enemyBase:null, basesUnsub:null, hitsUnsub:null, appliedHits:new Set() };
