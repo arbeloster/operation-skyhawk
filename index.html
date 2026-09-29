@@ -48,6 +48,8 @@
     text-shadow: 0 0 14px #0f0, 0 3px 6px rgba(0,0,0,.7); opacity: 0; pointer-events: none;
     transition: opacity .2s; font-family: "Courier New", monospace; }
   #crash-flash { position: fixed; inset: 0; background: #ff2b2b; opacity: 0; z-index: 6; pointer-events: none; transition: opacity .1s; }
+  #freeze-flash { position: fixed; inset: 0; background: radial-gradient(circle, rgba(150,220,255,.12), rgba(90,180,255,.5)); opacity: 0; z-index: 7; pointer-events: none; transition: opacity .12s; display:flex; align-items:center; justify-content:center; }
+  #freeze-flash b { color:#dff2ff; font-size:44px; letter-spacing:4px; text-shadow:0 0 18px #4bd, 0 0 6px #000; }
   #hp { position: absolute; top: 52px; left: 50%; transform: translateX(-50%); display: none; text-align: center; }
   #hp-lbl { font-size: 14px; letter-spacing: 2px; color: #47ff6a; }
   #hp-wrap { width: 240px; height: 16px; border: 2px solid #47ff6a; margin-top: 3px; background: rgba(0,0,0,.4); }
@@ -220,6 +222,7 @@
 
 <div id="cheer">WAYPOINT CLEARED</div>
 <div id="crash-flash"></div>
+<div id="freeze-flash"><b>❄ FROZEN! ❄</b></div>
 <div id="death">DRONE DESTROYED<br><span style="font-size:24px">RESPAWN IN <span id="respawn-num">3</span>...</span></div>
 
 <div id="pvp-hud">
@@ -1222,7 +1225,7 @@ function firePvpLightning(){
   if (!did){ const f=camForward(), p=state.pos.clone().addScaledVector(f,30); lightningStrike(new THREE.Vector3(p.x,0,p.z)); }  // still flashes so it feels alive
 }
 function shoot(){
-  if (!state.playing || state.paused || state.dead) return;
+  if (!state.playing || state.paused || state.dead || state.frozen>0) return;
   if (state.mode!=='combat' && !pvp.on) return;
   const rate = FIRE_RATE[state.gun] || 0.22;
   if (state.time - lastShot < rate) return;
@@ -1445,7 +1448,7 @@ const state = {
   throttle:0, playing:false, time:0, easy:true,
   battery:100, wind:new THREE.Vector3(), windTarget:new THREE.Vector3(),
   mode:'race', map:'flat', kills:0, noBattery:false,
-  health:100, dead:false, respawn:0, invuln:0,
+  health:100, dead:false, respawn:0, invuln:0, frozen:0,
   boost:100, boosting:false,
   coins:0, paused:false,
 };
@@ -1735,6 +1738,7 @@ function checkRings(){
 }
 
 const flash = document.getElementById('crash-flash');
+const freezeFlash = document.getElementById('freeze-flash');
 function crash(){
   flash.style.opacity=0.8; setTimeout(()=>flash.style.opacity=0,120);
   state.pos.set(0,1.2,0); state.vel.set(0,0,0); state.quat.identity();
@@ -1779,7 +1783,8 @@ function startGame(){
   state.pos.set(0,1.2,0); state.vel.set(0,0,0); state.quat.identity();
   state.throttle=0; state.time=0; state.kills=0; state.yaw=0; state.pitchV=0; state.rollV=0; state.camPitch=0;
   state.battery=100; state.wind.set(0,0,0); state.windTarget.set(0,0,0);
-  state.health=maxHP(); state.dead=false; state.respawn=0; state.invuln=0; updateHPbar();
+  state.health=maxHP(); state.dead=false; state.respawn=0; state.invuln=0; state.frozen=0; updateHPbar();
+  if(freezeFlash) freezeFlash.style.opacity=0;
   state.boost=100; state.boosting=false;
   state.paused=false; document.getElementById('pause').style.display='none';
   document.getElementById('death').style.display='none';
@@ -2382,13 +2387,13 @@ function setupPvp(room){
   const myLbl = makeBaseLabel('▼ YOUR BASE ▼', '#8dff8d');   myLbl.position.set(myPos.x, 40, myPos.z);       pvpGroup.add(myLbl);
   const enLbl = makeBaseLabel('▼ ENEMY BASE ▼','#ff7a7a');   enLbl.position.set(enemyPos.x, 40, enemyPos.z);  pvpGroup.add(enLbl);
   const spawn = myPos.clone().add(new THREE.Vector3(0,7,0));
-  const dir = enemyPos.clone().sub(myPos), yaw = Math.atan2(dir.x, dir.z);
+  const dir = enemyPos.clone().sub(myPos), yaw = Math.atan2(dir.x, dir.z) + Math.PI;   // spawn facing the enemy base
   pvp.myBase    = { hp:BASE_HP, max:BASE_HP, mesh:myMesh, center:new THREE.Vector3(myPos.x,8*S,myPos.z),    radius:13*S, spawn, yaw };
   pvp.enemyBase = { hp:BASE_HP, max:BASE_HP, mesh:enMesh, center:new THREE.Vector3(enemyPos.x,8*S,enemyPos.z), radius:13*S };
   // spawn at my own base, facing the enemy
   state.pos.copy(spawn); state.vel.set(0,0,0); state.quat.identity();
   state.yaw=yaw; state.pitchV=0; state.rollV=0; state.camPitch=0; state.throttle=0;
-  state.health=maxHP(); state.dead=false; state.respawn=0; state.invuln=2; updateHPbar();
+  state.health=maxHP(); state.dead=false; state.respawn=0; state.invuln=2; state.frozen=0; updateHPbar();
   // HUD: show hull + base bars + mobile fire button (freestyle normally hides these)
   document.getElementById('hp').style.display='block';
   const bf=document.getElementById('b-fire'); if(bf) bf.style.display='flex';   // let phones shoot (hidden by CSS on desktop)
@@ -2423,7 +2428,12 @@ function onPvpHits(hits){
     if(pvp.appliedHits.has(id)) continue;
     pvp.appliedHits.add(id);
     const h=hits[id]||{};
-    if(h.k==='base') pvpDamageMyBase(h.dmg||0); else pvpDamageSelf(h.dmg||0);
+    if(h.k==='base') pvpDamageMyBase(h.dmg||0);
+    else if(h.k==='freeze'){                                   // Freeze Gun: locked in place for a moment
+      if(!state.dead && state.invuln<=0 && !pvp.ended) state.frozen=Math.max(state.frozen, 1.4);
+      pvpDamageSelf(h.dmg||0);
+    }
+    else pvpDamageSelf(h.dmg||0);
     if(window.SkyNet) window.SkyNet.pvpClearHit(pvp.room, id);
   }
 }
@@ -2448,7 +2458,8 @@ function pvpDie(){
   dv.style.display='block';
 }
 function pvpRespawn(){
-  state.dead=false; state.health=maxHP(); updateHPbar(); state.invuln=2;
+  state.dead=false; state.health=maxHP(); updateHPbar(); state.invuln=2; state.frozen=0;
+  if(freezeFlash) freezeFlash.style.opacity=0;
   state.pos.copy(pvp.myBase.spawn); state.vel.set(0,0,0); state.quat.identity();
   state.throttle=0; state.yaw=pvp.myBase.yaw||0; state.pitchV=0; state.rollV=0; state.camPitch=0;
   document.getElementById('death').style.display='none';
@@ -2461,14 +2472,26 @@ function updatePvp(dt){
       if(to.lengthSq()>0.01){ to.normalize().multiplyScalar(b.userData.vel.length()); b.userData.vel.lerp(to,0.12); orientTracer(b,b.userData.vel); }
     }
     b.position.addScaledVector(b.userData.vel, dt); b.userData.life-=dt;
-    let done=false;
+    const k=b.userData.kind; let done=false;
     if(enemy && enemy.group && b.position.distanceTo(enemy.group.position) < 2.8){
-      if(pvp.enemyId && window.SkyNet) window.SkyNet.pvpSendHit(pvp.room, pvp.enemyId, 'drone', bulletDmg(b));
-      explode(b.position.clone()); done=true;
+      if(pvp.enemyId && window.SkyNet){
+        window.SkyNet.pvpSendHit(pvp.room, pvp.enemyId, k==='freeze'?'freeze':'drone', bulletDmg(b));
+        if(k==='laser' && pvp.enemyBase){                       // laser BOUNCES off the drone into the base
+          effects.push({ m:makeBeam(enemy.group.position.clone(), pvp.enemyBase.center.clone(), 0xff4466, 0.22), t:0, dur:0.22 });
+          window.SkyNet.pvpSendHit(pvp.room, pvp.enemyId, 'base', 6);
+        }
+      }
+      explode(b.position.clone(), k==='rocket'); done=true;
     }
     if(!done && pvp.enemyBase && b.position.distanceTo(pvp.enemyBase.center) < pvp.enemyBase.radius){
-      if(pvp.enemyId && window.SkyNet) window.SkyNet.pvpSendHit(pvp.room, pvp.enemyId, 'base', bulletDmg(b));
-      explode(b.position.clone()); done=true;
+      if(pvp.enemyId && window.SkyNet){
+        window.SkyNet.pvpSendHit(pvp.room, pvp.enemyId, 'base', bulletDmg(b));
+        if(k==='laser' && enemy && enemy.group){                // laser BOUNCES off the base into the drone
+          effects.push({ m:makeBeam(pvp.enemyBase.center.clone(), enemy.group.position.clone(), 0xff4466, 0.22), t:0, dur:0.22 });
+          window.SkyNet.pvpSendHit(pvp.room, pvp.enemyId, 'drone', 6);
+        }
+      }
+      explode(b.position.clone(), k==='rocket'); done=true;
     }
     if(!done && (b.userData.life<=0 || b.position.y<0)) done=true;
     if(done){ fxGroup.remove(b); bullets.splice(i,1); }
@@ -2518,8 +2541,9 @@ function loop(now){
         if (state.respawn <= 0) pvpRespawn();
       } else if (state.respawn <= 0) endCombat();
     } else {
-      state.time += dt; fly(dt);
-      if (mobileFire) shoot();
+      state.time += dt;
+      if (state.frozen>0){ state.frozen-=dt; freezeFlash.style.opacity=1; }   // frozen: can't fly or shoot
+      else { if(freezeFlash.style.opacity!=='0') freezeFlash.style.opacity=0; fly(dt); if (mobileFire) shoot(); }
       if (netRoom && window.SkyNet && now-lastNet>90){ lastNet=now;
         window.SkyNet.updateMe({ x:state.pos.x, y:state.pos.y, z:state.pos.z, ry:state.yaw, t:now }); }
       if (state.mode==='race') checkRings();
