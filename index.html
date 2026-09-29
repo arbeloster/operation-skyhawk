@@ -1208,21 +1208,17 @@ function firePvpHoming(dir){
     fxGroup.add(b); bullets.push(b);
   }
 }
-// 1v1 lightning: call bolts from the sky onto the enemy drone / base when you're near them
+// 1v1 lightning: press fire and bolts auto-strike the enemy drone AND base (never the ground under you)
 function firePvpLightning(){
-  let did=false;
-  const rp = pvp.enemyId ? remotePlayers[pvp.enemyId] : null;
-  if (rp && rp.group && state.pos.distanceTo(rp.group.position) < 80){
-    lightningStrike(new THREE.Vector3(rp.group.position.x, 0, rp.group.position.z));
-    if (window.SkyNet) window.SkyNet.pvpSendHit(pvp.room, pvp.enemyId, 'drone', 16);
-    did=true;
-  }
-  if (pvp.enemyBase && state.pos.distanceTo(pvp.enemyBase.center) < 58){
-    lightningStrike(new THREE.Vector3(pvp.enemyBase.center.x, 0, pvp.enemyBase.center.z));
-    if (window.SkyNet && pvp.enemyId) window.SkyNet.pvpSendHit(pvp.room, pvp.enemyId, 'base', 15);
-    did=true;
-  }
-  if (!did){ const f=camForward(), p=state.pos.clone().addScaledVector(f,30); lightningStrike(new THREE.Vector3(p.x,0,p.z)); }  // still flashes so it feels alive
+  if (!pvp.enemyId) return;                                     // no opponent yet — don't zap the dirt
+  const from = camera.position.clone();
+  const zap = (pos)=>{                                          // a bolt from you + a strike from the sky
+    effects.push({ m: makeBeam(from.clone(), pos.clone(), 0xbfe0ff, 0.3), t:0, dur:0.2 });
+    lightningStrike(new THREE.Vector3(pos.x, 0, pos.z));
+  };
+  const rp = remotePlayers[pvp.enemyId];
+  if (rp && rp.group){ zap(rp.group.position); if (window.SkyNet) window.SkyNet.pvpSendHit(pvp.room, pvp.enemyId, 'drone', 14); }
+  if (pvp.enemyBase){ zap(pvp.enemyBase.center); if (window.SkyNet) window.SkyNet.pvpSendHit(pvp.room, pvp.enemyId, 'base', 12); }
 }
 function shoot(){
   if (!state.playing || state.paused || state.dead || state.frozen>0) return;
